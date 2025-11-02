@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Analyzer Enterprise - Dashboard</title>
+
+    <!-- Modern CSS Framework and Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/shared-ui-components.css') }}" rel="stylesheet">
+
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+
+        .admin-header-card {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #581c87 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+            border-color: #d946ef;
+        }
+
+        .upload-zone {
+            background: linear-gradient(145deg, #f9fafb 0%, #ffffff 100%);
+            border: 2px dashed #e5e7eb;
+            transition: all 0.3s ease;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+        }
+
+        .upload-zone:hover {
+            border-color: #a855f7;
+            background: linear-gradient(145deg, #faf5ff 0%, #f3e8ff 100%);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(168, 85, 247, 0.15);
+        }
+
+        .upload-zone.dragover {
+            border-color: #10b981;
+            background: linear-gradient(145deg, #ecfdf5 0%, #d1fae5 100%);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(16, 185, 129, 0.15);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.375rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-queued {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-processing {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-completed {
+            background: #e0e7ff;
+            color: #5b21b6;
+        }
+
+        .status-paused {
+            background: #fed7aa;
+            color: #9a3412;
+        }
+
+        .status-cancelled {
+            background: #fecaca;
+            color: #991b1b;
+        }
+
+        .status-failed {
+            background: #fecaca;
+            color: #991b1b;
+        }
+
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+
+        .progress-ring-circle {
+            stroke-dasharray: 283;
+            stroke-dashoffset: 283;
+            transition: stroke-dashoffset 0.35s;
+        }
+
+        .modern-table {
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .modern-table thead {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        }
+
+        .modern-table tbody tr {
+            border-bottom: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+
+        .modern-table tbody tr:hover {
+            background: linear-gradient(90deg, transparent 0%, rgba(168, 85, 247, 0.05) 100%);
+        }
+
+        .table-header {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        }
+
+        .table-row {
+            border-bottom: 1px solid #f1f5f9;
+            transition: all 0.2s ease;
+        }
+
+        .table-row:hover {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid #e2e8f0;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .custom-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 #f1f5f9;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Performance optimizations */
+        .stat-card,
+        .upload-zone,
+        .nav-item {
+            will-change: transform;
+        }
+
+        /* Reduce motion for accessibility */
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .stat-card {
+                padding: 1rem;
+            }
+
+            .upload-zone {
+                padding: 2rem 1rem;
+            }
+
+            .text-3xl {
+                font-size: 1.875rem;
+            }
+        }
+
+        /* Loading skeleton animations */
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+    <!-- Mobile Hamburger Menu Button -->
+    <button class="sidebar-toggle fixed top-4 left-4 z-40 lg:hidden" aria-label="Toggle sidebar navigation"
+        aria-expanded="false" aria-controls="sidebar-nav">
+        <i class="fas fa-bars text-xl"></i>
+    </button>
+
+    <!-- Modern Sidebar Navigation -->
+    <nav id="sidebar-nav" class="sidebar-nav" role="navigation" aria-label="Main navigation">
+
+        <!-- Sidebar Header -->
+        <div class="sidebar-header">
+            <div class="sidebar-header-content">
+                <div class="sidebar-header-logo">
+                    <i class="fas fa-images sidebar-header-logo-icon"></i>
+                </div>
+                <span class="sidebar-header-text">ImageAI</span>
+            </div>
+        </div>
+
+        <!-- Navigation Items -->
+        <ul class="sidebar-nav-list">
+            <li>
+                <a href="/" class="nav-item" role="menuitem" aria-current="page">
+                    <i class="fas fa-tachometer-alt nav-item-icon"></i>
+                    <span class="nav-item-label">Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="/admin" class="nav-item" role="menuitem">
+                    <i class="fas fa-cogs nav-item-icon"></i>
+                    <span class="nav-item-label">Administration</span>
+                </a>
+            </li>
+            <li>
+                <a href="/system/status" class="nav-item" role="menuitem">
+                    <i class="fas fa-chart-line nav-item-icon"></i>
+                    <span class="nav-item-label">System Status</span>
+                </a>
+            </li>
+            <li>
+                <a href="/export/template" class="nav-item" role="menuitem">
+                    <i class="fas fa-download nav-item-icon"></i>
+                    <span class="nav-item-label">Templates</span>
+                </a>
+            </li>
+        </ul>
+
+        <!-- Sidebar Footer - System Status -->
+        <div class="sidebar-footer" role="status" aria-live="polite" aria-label="System status">
+            <div class="status-section-title">
+                <span class="status-indicator healthy" id="connectionStatus"
+                    aria-label="System connection status"></span>
+                System Status
+            </div>
+            <div class="status-text" id="statusText">
+                <span class="status-indicator healthy"></span>
+                Online
+            </div>
+            <div class="status-meta">Chunk Size: {{ config.chunk_size }}</div>
+            <div class="status-meta" id="lastCheckTime"></div>
+        </div>
+    </nav>
+
+    <!-- Main Content Wrapper -->
+    <div class="main-with-sidebar">
+        <!-- Top Navigation Bar -->
+        <header class="bg-white shadow-sm border-b border-gray-200">
+            <div class="flex items-center justify-between px-6 py-4">
+                <div class="flex items-center">
+                    <button class="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1 class="ml-4 text-2xl font-bold text-gray-900">Enterprise Dashboard</h1>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <button class="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                            <i class="fas fa-bell"></i>
+                        </button>
+                        <span class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
+                    </div>
+                    <div
+                        class="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Content -->
+        <main class="p-6 space-y-6">
+            <!-- Welcome Section -->
+            <div class="gradient-bg rounded-2xl p-6 text-white"
+                style="backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.15); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.2);">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-3xl font-bold mb-2">Welcome to Enterprise Image Processing</h2>
+                        <p class="text-purple-100 text-lg">Process millions of image URLs with PostgreSQL + Redis
+                            architecture</p>
+                    </div>
+                    <div class="hidden md:block">
+                        <div class="bg-white bg-opacity-20 rounded-lg p-4">
+                            <div class="text-2xl font-bold">{{ config.max_concurrent_batches }}</div>
+                            <div class="text-sm text-purple-100">Max Concurrent</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="stat-card rounded-2xl p-6" id="stat-total-batches">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Total Batches</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2 stat-value">{{ system_stats.total_batches }}
+                            </p>
+                        </div>
+                        <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-layer-group text-blue-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        <span class="text-green-600 font-medium">+12%</span>
+                        <span class="text-gray-500 ml-2">vs last month</span>
+                    </div>
+                </div>
+
+                <div class="stat-card rounded-2xl p-6" id="stat-active-batches">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Active Batches</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2 stat-value">{{ system_stats.active_batches
+                                }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-play-circle text-purple-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center">
+                        <div class="flex items-center">
+                            <div class="pulse-dot mr-2"></div>
+                            <span class="text-sm text-gray-500">Processing now</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stat-card rounded-2xl p-6" id="stat-urls-processed">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">URLs Processed</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2 stat-value">{{
+                                system_stats.total_urls_processed |
+                                default(0) | int }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        <span class="text-green-600 font-medium stat-success-rate">{{
+                            "%.1f"|format(system_stats.overall_success_rate|default(0)) }}%</span>
+                        <span class="text-gray-500 ml-2">success rate</span>
+                    </div>
+                </div>
+
+                <div class="stat-card rounded-2xl p-6" id="stat-queue-status">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Queue Status</p>
+                            {% if system_stats.queue_stats %}
+                            <p class="text-3xl font-bold text-gray-900 mt-2 stat-value">{{
+                                system_stats.queue_stats.pending |
+                                default(0) }}</p>
+                            {% else %}
+                            <p class="text-3xl font-bold text-gray-900 mt-2">0</p>
+                            {% endif %}
+                        </div>
+                        <div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-clock text-orange-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        {% if system_stats.queue_stats %}
+                        <span class="text-gray-500 stat-processing">{{ system_stats.queue_stats.processing | default(0)
+                            }}
+                            processing</span>
+                        {% else %}
+                        <span class="text-gray-500 stat-processing">0 processing</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Access Guide -->
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6 mb-8">
+                <div class="flex items-start">
+                    <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-info-circle text-blue-600 text-xl"></i>
+                    </div>
+                    <div class="ml-4 flex-1">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">Quick Access to Batch Controls</h3>
+                        <p class="text-gray-600 mb-3">Access individual batch management controls using these direct
+                            links:</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                            <div class="flex items-center">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2"></i>
+                                <span><strong>Recent Batches:</strong> Click "View Details" below to access full batch
+                                    controls</span>
+                            </div>
+                            <div class="flex items-center">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2"></i>
+                                <span><strong>Admin Panel:</strong> <a href="/admin"
+                                        class="text-blue-600 hover:underline">Go to Administration</a> for system
+                                    management</span>
+                            </div>
+                            <div class="flex items-center">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2"></i>
+                                <span><strong>System Status:</strong> <a href="/system/status"
+                                        class="text-blue-600 hover:underline">View System Health</a></span>
+                            </div>
+                            <div class="flex items-center">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2"></i>
+                                <span><strong>Direct Access:</strong> Use URL format <code
+                                        class="bg-gray-100 px-1 rounded">/batch/YOUR_BATCH_ID</code></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-6 flex items-center">
+                    <i class="fas fa-cloud-upload-alt text-purple-600 mr-3"></i>
+                    Create New Batch
+                </h3>
+
+                <form id="uploadForm" enctype="multipart/form-data" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Batch Name</label>
+                            <input type="text" name="batch_name" id="batchName"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                placeholder="Enter batch name (optional)">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Auto Start</label>
+                            <div class="flex items-center space-x-4">
+                                <label class="flex items-center">
+                                    <input type="radio" name="auto_start" value="true" id="autoStartYes" checked
+                                        class="text-purple-600 focus:ring-purple-500">
+                                    <span class="ml-2 text-sm text-gray-700">Yes</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="radio" name="auto_start" value="false" id="autoStartNo"
+                                        class="text-purple-600 focus:ring-purple-500">
+                                    <span class="ml-2 text-sm text-gray-700">No</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="upload-zone rounded-2xl p-8 text-center cursor-pointer" id="uploadZone"
+                        onclick="document.getElementById('fileInput').click()">
+                        <input type="file" id="fileInput" name="file" accept=".csv" class="hidden">
+                        <div class="space-y-4">
+                            <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto">
+                                <i class="fas fa-file-csv text-purple-600 text-2xl"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-lg font-semibold text-gray-900">Drop your CSV file here</h4>
+                                <p class="text-gray-500 mt-1">or click to browse files</p>
+                                <p class="text-sm text-gray-400 mt-2">Supports CSV files up to 100MB</p>
+                            </div>
+                            <div class="flex items-center justify-center space-x-4 text-sm text-gray-500">
+                                <span class="flex items-center">
+                                    <i class="fas fa-shield-alt text-green-500 mr-1"></i>
+                                    Secure Upload
+                                </span>
+                                <span class="flex items-center">
+                                    <i class="fas fa-bolt text-yellow-500 mr-1"></i>
+                                    Fast Processing
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="uploadBtn" disabled
+                        class="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-4 px-6 rounded-xl font-semibold hover:from-purple-700 hover:to-purple-800 transition-all transform hover:scale-[1.02] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                        <i class="fas fa-upload mr-2"></i>
+                        Create and Process Batch
+                    </button>
+                </form>
+
+                <!-- Upload Progress -->
+                <div id="uploadProgress" class="mt-4 hidden">
+                    <div class="bg-gray-200 rounded-full h-2 mb-2">
+                        <div class="bg-gradient-to-r from-purple-600 to-pink-600 h-2 rounded-full animate-pulse w-full">
+                        </div>
+                    </div>
+                    <p class="text-center text-gray-600">Creating batch...</p>
+                </div>
+            </div>
+
+            <!-- Administrative Tools -->
+            <div class="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-2xl border border-yellow-200 p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-tools text-yellow-600 mr-3"></i>
+                    Administrative Tools
+                </h3>
+                <p class="text-gray-600 mb-6">Monitor queue health and system status</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="text-center">
+                        <a href="/admin"
+                            class="block bg-white hover:bg-blue-50 border border-blue-200 rounded-lg p-4 transition-colors">
+                            <i class="fas fa-tachometer-alt text-blue-600 text-2xl mb-2"></i>
+                            <div class="font-semibold text-gray-900">Admin Dashboard</div>
+                            <div class="text-sm text-gray-500 mt-1">Monitor queue health and system status</div>
+                        </a>
+                    </div>
+
+                    <div class="text-center">
+                        <button onclick="window.open('/admin/queue/status', '_blank')"
+                            class="w-full bg-white hover:bg-yellow-50 border border-yellow-200 rounded-lg p-4 transition-colors">
+                            <i class="fas fa-list-ul text-yellow-600 text-2xl mb-2"></i>
+                            <div class="font-semibold text-gray-900">Queue Status</div>
+                            <div class="text-sm text-gray-500 mt-1">View current job queue statistics</div>
+                        </button>
+                    </div>
+
+                    <div class="text-center">
+                        <button onclick="cleanupFromMain()"
+                            class="w-full bg-white hover:bg-red-50 border border-red-200 rounded-lg p-4 transition-colors">
+                            <i class="fas fa-broom text-red-600 text-2xl mb-2"></i>
+                            <div class="font-semibold text-gray-900">Quick Cleanup</div>
+                            <div class="text-sm text-gray-500 mt-1">Remove stuck jobs from queue</div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Batch Data Section -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xl font-bold text-gray-900 flex items-center">
+                            <i class="fas fa-table text-purple-600 mr-3"></i>
+                            Batch Data
+                        </h3>
+                    </div>
+                </div>
+
+                <!-- Filters Section -->
+                <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <!-- Success Filter -->
+                        <div>
+                            <label for="filterSuccess" class="block text-sm font-medium text-gray-700 mb-2">
+                                Success Status
+                            </label>
+                            <select id="filterSuccess"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                                <option value="all">All Results</option>
+                                <option value="true">Success Only</option>
+                                <option value="false">Failed Only</option>
+                            </select>
+                        </div>
+
+                        <!-- Store Image Filter -->
+                        <div>
+                            <label for="filterStoreImage" class="block text-sm font-medium text-gray-700 mb-2">
+                                Store Image
+                            </label>
+                            <select id="filterStoreImage"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                                <option value="all">All Results</option>
+                                <option value="true">Has Image</option>
+                                <option value="false">No Image</option>
+                            </select>
+                        </div>
+
+                        <!-- Batch ID Search -->
+                        <div>
+                            <label for="filterBatchId" class="block text-sm font-medium text-gray-700 mb-2">
+                                Batch ID
+                            </label>
+                            <input type="text" id="filterBatchId" placeholder="Search by batch ID..."
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                        </div>
+
+                        <!-- Results Per Page -->
+                        <div>
+                            <label for="filterPerPage" class="block text-sm font-medium text-gray-700 mb-2">
+                                Rows Per Page
+                            </label>
+                            <select id="filterPerPage"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                                <option value="25">25 rows</option>
+                                <option value="50">50 rows</option>
+                                <option value="100">100 rows</option>
+                            </select>
+                        </div>
+
+                        <!-- Export Button -->
+                        <div class="flex items-end">
+                            <button id="exportButton"
+                                class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center">
+                                <i class="fas fa-download mr-2"></i>
+                                Export CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div id="loadingState" class="hidden p-12 text-center">
+                    <div
+                        class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-600 mx-auto mb-4">
+                    </div>
+                    <p class="text-gray-600">Loading batch data...</p>
+                </div>
+
+                <!-- Table Section -->
+                <div id="tableSection" class="overflow-x-auto custom-scrollbar">
+                    <table id="batchDataTable" class="w-full" role="table" aria-label="Batch data results">
+                        <thead class="sticky top-0 z-10" role="rowgroup">
+                            <tr role="row" class="bg-white border-b border-gray-200">
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
+                                    role="columnheader" aria-sort="none" data-sort="success" tabindex="0">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span>Success</span>
+                                        <i
+                                            class="fas fa-sort text-xs opacity-50 group-hover:opacity-100 transition-opacity text-gray-600"></i>
+                                    </div>
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
+                                    role="columnheader" aria-sort="none" data-sort="store_image" tabindex="0">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span>Image</span>
+                                        <i
+                                            class="fas fa-sort text-xs opacity-50 group-hover:opacity-100 transition-opacity text-gray-600"></i>
+                                    </div>
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest"
+                                    role="columnheader">
+                                    Content
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
+                                    role="columnheader" aria-sort="none" data-sort="store_name" tabindex="0">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span>Store Name</span>
+                                        <i
+                                            class="fas fa-sort text-xs opacity-50 group-hover:opacity-100 transition-opacity text-gray-600"></i>
+                                    </div>
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest"
+                                    role="columnheader">
+                                    Contact
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest"
+                                    role="columnheader">
+                                    Description
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest"
+                                    role="columnheader">
+                                    URL
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
+                                    role="columnheader" aria-sort="none" data-sort="processing_time_seconds"
+                                    tabindex="0">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span>Time (s)</span>
+                                        <i
+                                            class="fas fa-sort text-xs opacity-50 group-hover:opacity-100 transition-opacity text-gray-600"></i>
+                                    </div>
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
+                                    role="columnheader" aria-sort="none" data-sort="created_at" tabindex="0">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span>Created</span>
+                                        <i
+                                            class="fas fa-sort text-xs opacity-50 group-hover:opacity-100 transition-opacity text-gray-600"></i>
+                                    </div>
+                                </th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest"
+                                    role="columnheader">
+                                    Batch
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200" role="rowgroup">
+                            <!-- Table rows will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty State -->
+                <div id="emptyState" class="hidden p-12 text-center">
+                    <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-inbox text-gray-400 text-2xl"></i>
+                    </div>
+                    <h4 class="text-lg font-semibold text-gray-900 mb-2">No data found</h4>
+                    <p class="text-gray-500">Try adjusting your filters to find batch data</p>
+                </div>
+
+                <!-- Pagination -->
+                <div id="paginationSection"
+                    class="px-6 py-4 bg-white border-t border-gray-200 flex items-center justify-between flex-wrap gap-4">
+                    <div class="flex items-center space-x-4">
+                        <div class="text-sm text-gray-600">
+                            Showing <span id="resultCount">0</span> results
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            <label for="perPageSelect" class="font-medium mr-2">Per page:</label>
+                            <select id="perPageSelect"
+                                class="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-purple-500 focus:border-purple-500">
+                                <option value="10">10</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button id="prevButton"
+                            class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            <i class="fas fa-chevron-left mr-1"></i>
+                            Previous
+                        </button>
+                        <div id="pageInfo" class="text-sm font-medium text-gray-700 min-w-max">
+                            Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+                        </div>
+                        <button id="nextButton"
+                            class="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Next
+                            <i class="fas fa-chevron-right ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modern JavaScript for Enhanced UX -->
+    <script>
+        // File upload handling with modern UX
+        const uploadZone = document.querySelector('.upload-zone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadForm = document.getElementById('uploadForm');
+
+        // Drag and drop functionality
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight() {
+            uploadZone.classList.add('dragover');
+        }
+
+        function unhighlight() {
+            uploadZone.classList.remove('dragover');
+        }
+
+        uploadZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            fileInput.files = files;
+            handleFileSelect();
+        }
+
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            if (file) {
+                // Validate file type
+                if (!file.name.toLowerCase().endsWith('.csv')) {
+                    showNotification('Please select a CSV file', 'error');
+                    fileInput.value = '';
+                    uploadBtn.disabled = true;
+                    return;
+                }
+
+                // Validate file size (100MB limit)
+                const maxSize = 100 * 1024 * 1024; // 100MB in bytes
+                if (file.size > maxSize) {
+                    showNotification(`File size too large. Maximum allowed size is 100MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB`, 'error');
+                    fileInput.value = '';
+                    uploadBtn.disabled = true;
+                    return;
+                }
+
+                const uploadZoneContent = uploadZone.querySelector('.space-y-4');
+                uploadZoneContent.innerHTML = `
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                        <i class="fas fa-file-csv text-green-600 text-2xl"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-900">${file.name}</h4>
+                        <p class="text-gray-500 mt-1">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                        <p class="text-sm text-green-600 mt-2">✓ Ready to upload</p>
+                    </div>
+                `;
+                uploadBtn.disabled = false;
+                showNotification('File validated successfully', 'success');
+            } else {
+                uploadBtn.disabled = true;
+            }
+        }
+
+        // Form submission with loading state
+        uploadForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            // Validate file selection
+            if (!fileInput.files.length) {
+                showNotification('Please select a file first', 'error');
+                return;
+            }
+
+            const submitBtn = uploadForm.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            const uploadProgress = document.getElementById('uploadProgress');
+
+            // Show loading state with animated progress
+            submitBtn.innerHTML = `
+                <div class="flex items-center justify-center">
+                    <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <span>Creating Batch...</span>
+                </div>
+            `;
+            submitBtn.disabled = true;
+
+            if (uploadProgress) {
+                uploadProgress.classList.remove('hidden');
+                uploadProgress.innerHTML = `
+                    <div class="bg-gray-200 rounded-full h-3 mb-3">
+                        <div class="bg-gradient-to-r from-purple-600 to-pink-600 h-3 rounded-full animate-pulse" style="width: 70%"></div>
+                    </div>
+                    <div class="flex items-center justify-center space-x-2">
+                        <i class="fas fa-upload text-purple-600"></i>
+                        <span class="text-center text-gray-600">Processing CSV file and creating batch...</span>
+                    </div>
+                `;
+            }
+
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const batchName = document.getElementById('batchName');
+            const autoStartYes = document.getElementById('autoStartYes');
+
+            if (batchName && batchName.value.trim()) {
+                formData.append('batch_name', batchName.value.trim());
+            }
+
+            if (autoStartYes) {
+                formData.append('auto_start', autoStartYes.checked ? 'true' : 'false');
+            }
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned invalid response format');
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Show success modal
+                    showSuccessModal(result);
+                } else {
+                    showNotification(result.error || 'Upload failed', 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                let errorMessage = 'Upload failed';
+
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Network error - please check your connection and try again';
+                } else if (error.message.includes('HTTP 413')) {
+                    errorMessage = 'File too large - please use a smaller CSV file';
+                } else if (error.message.includes('HTTP 400')) {
+                    errorMessage = 'Invalid file format - please use a valid CSV file';
+                } else if (error.message.includes('HTTP 500')) {
+                    errorMessage = 'Server error - please try again later';
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+
+                showNotification(errorMessage, 'error');
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+                if (uploadProgress) uploadProgress.classList.add('hidden');
+            }
+        });
+
+        // Success modal function
+        function showSuccessModal(result) {
+            // Create modal if it doesn't exist
+            if (!document.getElementById('successModal')) {
+                const modalHTML = `
+                    <div id="successModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+                        <div class="bg-white rounded-2xl p-6 m-4 max-w-md w-full">
+                            <div class="text-center">
+                                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i class="fas fa-check-circle text-green-600 text-2xl"></i>
+                                </div>
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">Batch Created Successfully!</h3>
+                                <div id="successMessage" class="text-gray-600 mb-6"></div>
+                                <div class="space-y-3">
+                                    <a href="#" id="viewBatchBtn" class="block w-full bg-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-purple-700 transition-colors">
+                                        <i class="fas fa-eye mr-2"></i>
+                                        View Batch Details
+                                    </a>
+                                    <button onclick="closeSuccessModal()" class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-lg font-medium hover:bg-gray-300 transition-colors">
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+            }
+
+            // Update modal content
+            document.getElementById('successMessage').innerHTML = `
+                <div class="text-left space-y-2">
+                    <p><strong>Batch ID:</strong> ${result.batch_id}</p>
+                    <p><strong>Total URLs:</strong> ${result.batch_info.total_urls.toLocaleString()}</p>
+                    <p><strong>Chunks:</strong> ${result.batch_info.total_chunks}</p>
+                    ${result.batch_info.auto_started ? '<p class="text-green-600">✓ Auto-started</p>' : ''}
+                </div>
+            `;
+            document.getElementById('viewBatchBtn').href = result.redirect_url;
+            document.getElementById('successModal').classList.remove('hidden');
+
+            // Reset form
+            resetUploadForm();
+        }
+
+        // Close success modal
+        window.closeSuccessModal = function () {
+            document.getElementById('successModal').classList.add('hidden');
+            setTimeout(() => location.reload(), 500);
+        };
+
+        // Reset upload form
+        function resetUploadForm() {
+            uploadForm.reset();
+            const uploadBtn = document.getElementById('uploadBtn');
+            uploadBtn.disabled = true;
+
+            // Reset upload zone
+            const uploadZone = document.getElementById('uploadZone');
+            uploadZone.innerHTML = `
+                <div class="space-y-4">
+                    <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto">
+                        <i class="fas fa-file-csv text-purple-600 text-2xl"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-900">Drop your CSV file here</h4>
+                        <p class="text-gray-500 mt-1">or click to browse files</p>
+                        <p class="text-sm text-gray-400 mt-2">Supports CSV files up to 100MB</p>
+                    </div>
+                    <div class="flex items-center justify-center space-x-4 text-sm text-gray-500">
+                        <span class="flex items-center">
+                            <i class="fas fa-shield-alt text-green-500 mr-1"></i>
+                            Secure Upload
+                        </span>
+                        <span class="flex items-center">
+                            <i class="fas fa-bolt text-yellow-500 mr-1"></i>
+                            Fast Processing
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Admin cleanup function
+        window.cleanupFromMain = async function () {
+            if (!confirm('This will remove stuck jobs from Redis queue AND reset stuck batches in database. Continue?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/queue/cleanup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_types: ['process_chunk', 'chunk_processing'],
+                        max_age_hours: 24,
+                        clean_database: true
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const data = result.data;
+                    let message = 'Cleanup completed!\n';
+                    message += `• Redis jobs removed: ${data.redis_removed_count}\n`;
+                    message += `• Database batches reset: ${data.db_reset_count}\n`;
+                    message += `• Jobs kept: ${data.kept_count}`;
+
+                    showNotification(message.replace(/\n/g, '<br>'), 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showNotification('Error: ' + result.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error cleaning queue:', error);
+                showNotification('Error cleaning queue. Please try again or use the admin dashboard.', 'error');
+            }
+        };
+
+        // Enhanced notification system with different types and auto-dismiss
+        function showNotification(message, type = 'info', duration = 5000) {
+            // Remove existing notifications of the same type
+            const existingNotifications = document.querySelectorAll(`.notification-${type}`);
+            existingNotifications.forEach(notif => notif.remove());
+
+            const notification = document.createElement('div');
+            notification.className = `notification-${type} fixed top-4 right-4 z-50 p-4 rounded-xl shadow-lg transform translate-x-full transition-all duration-300 max-w-md ${type === 'success' ? 'bg-green-500 text-white' :
+                type === 'error' ? 'bg-red-500 text-white' :
+                    type === 'warning' ? 'bg-yellow-500 text-white' :
+                        'bg-blue-500 text-white'
+                }`;
+
+            const icon = type === 'success' ? 'check-circle' :
+                type === 'error' ? 'exclamation-circle' :
+                    type === 'warning' ? 'exclamation-triangle' : 'info-circle';
+
+            notification.innerHTML = `
+                <div class="flex items-start space-x-3">
+                    <i class="fas fa-${icon} text-lg mt-0.5 flex-shrink-0"></i>
+                    <div class="flex-1">
+                        <div class="font-medium">${type.charAt(0).toUpperCase() + type.slice(1)}</div>
+                        <div class="text-sm opacity-90 mt-1">${message}</div>
+                    </div>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-2 opacity-70 hover:opacity-100 transition-opacity">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            // Slide in
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+            }, 100);
+
+            // Auto-dismiss for success and info notifications
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    notification.classList.add('translate-x-full');
+                    setTimeout(() => notification.remove(), 300);
+                }, duration);
+            }
+        }
+
+        // Connection status monitoring
+        async function checkConnectionStatus() {
+            const statusIndicator = document.getElementById('connectionStatus');
+            const statusText = document.getElementById('statusText');
+            const lastCheckTime = document.getElementById('lastCheckTime');
+
+            try {
+                const response = await fetch('/api/v1/system/stats', {
+                    method: 'GET',
+                    timeout: 5000
+                });
+
+                if (response.ok) {
+                    statusIndicator.className = 'pulse-dot';
+                    statusIndicator.style.background = '#10b981'; // green
+                    statusText.textContent = 'Online';
+                    statusText.className = 'text-white text-sm font-medium';
+                } else {
+                    throw new Error('Server response error');
+                }
+            } catch (error) {
+                statusIndicator.className = 'w-2 h-2 bg-red-500 rounded-full';
+                statusIndicator.style.background = '#ef4444'; // red
+                statusText.textContent = 'Offline';
+                statusText.className = 'text-red-400 text-sm font-medium';
+            }
+
+            if (lastCheckTime) {
+                lastCheckTime.textContent = `Last check: ${new Date().toLocaleTimeString()}`;
+            }
+        }
+
+        // Auto-refresh for active batches with enhanced error handling
+        async function refreshStats() {
+            try {
+                const response = await fetch('/api/v1/system/stats');
+                if (!response.ok) throw new Error('Network response was not ok');
+
+                const data = await response.json();
+                if (data.success) {
+                    // Update total batches
+                    const totalBatchesEl = document.querySelector('#stat-total-batches .stat-value');
+                    if (totalBatchesEl) {
+                        totalBatchesEl.textContent = data.data.total_batches || 0;
+                    }
+
+                    // Update active batches count
+                    const activeBatchesEl = document.querySelector('#stat-active-batches .stat-value');
+                    if (activeBatchesEl) {
+                        activeBatchesEl.textContent = data.data.active_batches || 0;
+                    }
+
+                    // Update processed URLs
+                    const processedUrlsEl = document.querySelector('#stat-urls-processed .stat-value');
+                    if (processedUrlsEl) {
+                        processedUrlsEl.textContent = data.data.total_urls_processed || 0;
+                    }
+
+                    // Update success rate
+                    const successRateEl = document.querySelector('#stat-urls-processed .stat-success-rate');
+                    if (successRateEl) {
+                        const successRate = ((data.data.overall_success_rate || 0).toFixed(1));
+                        successRateEl.textContent = successRate + '%';
+                    }
+
+                    // Update queue status pending
+                    const queuePendingEl = document.querySelector('#stat-queue-status .stat-value');
+                    if (queuePendingEl && data.data.queue_stats) {
+                        queuePendingEl.textContent = data.data.queue_stats.pending || 0;
+                    }
+
+                    // Update queue status processing
+                    const processingEl = document.querySelector('#stat-queue-status .stat-processing');
+                    if (processingEl && data.data.queue_stats) {
+                        const processingCount = data.data.queue_stats.processing || 0;
+                        processingEl.textContent = processingCount + ' processing';
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to refresh stats:', error);
+                // Don't show notification for background refresh failures
+            }
+        }
+
+        // Refresh every 30 seconds if there are active batches
+        setInterval(refreshStats, 30000);
+
+        // Check connection status every 10 seconds
+        setInterval(checkConnectionStatus, 10000);
+
+        // Initial connection check
+        checkConnectionStatus();
+
+        // Mobile menu toggle
+        const menuButton = document.querySelector('.lg\\:hidden button');
+        const sidebar = document.querySelector('.sidebar-nav');
+
+        if (menuButton) {
+            menuButton.addEventListener('click', () => {
+                sidebar.classList.toggle('-translate-x-full');
+            });
+        }
+
+        // Smooth scrolling for better UX
+        document.documentElement.style.scrollBehavior = 'smooth';
+
+        // Performance optimization: Debounced resize handler
+        let resizeTimeout;
+        window.addEventListener('resize', function () {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(function () {
+                // Handle responsive layout updates if needed
+                const sidebar = document.querySelector('.sidebar-nav');
+                if (window.innerWidth >= 1024) {
+                    sidebar.classList.remove('-translate-x-full');
+                } else {
+                    sidebar.classList.add('-translate-x-full');
+                }
+            }, 250);
+        });
+
+        // Performance optimization: Intersection observer for lazy loading
+        if ('IntersectionObserver' in window) {
+            const observerOptions = {
+                root: null,
+                rootMargin: '50px',
+                threshold: 0.1
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const element = entry.target;
+                        if (element.dataset.lazyLoad) {
+                            // Trigger lazy loading for heavy content
+                            element.classList.add('loaded');
+                            observer.unobserve(element);
+                        }
+                    }
+                });
+            }, observerOptions);
+
+            // Observe elements that should be lazy loaded
+            document.querySelectorAll('[data-lazy-load]').forEach(el => {
+                observer.observe(el);
+            });
+        }
+
+        // Batch selection functionality
+        function initBatchSelection() {
+            const selectAllCheckbox = document.getElementById('selectAll');
+            const batchCheckboxes = document.querySelectorAll('.batch-checkbox');
+            const bulkActions = document.getElementById('bulkActions');
+            const selectedCount = document.getElementById('selectedCount');
+
+            if (!selectAllCheckbox || !bulkActions) return;
+
+            // Handle select all
+            selectAllCheckbox.addEventListener('change', function () {
+                const isChecked = this.checked;
+                batchCheckboxes.forEach(checkbox => {
+                    checkbox.checked = isChecked;
+                });
+                updateBulkActions();
+            });
+
+            // Handle individual checkbox changes
+            batchCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', updateBulkActions);
+            });
+
+            function updateBulkActions() {
+                const checkedBoxes = document.querySelectorAll('.batch-checkbox:checked');
+                const count = checkedBoxes.length;
+
+                if (count > 0) {
+                    bulkActions.style.display = 'block';
+                    selectedCount.textContent = `${count} batch${count > 1 ? 'es' : ''} selected`;
+                } else {
+                    bulkActions.style.display = 'none';
+                }
+
+                // Update select all checkbox state
+                selectAllCheckbox.checked = count === batchCheckboxes.length;
+                selectAllCheckbox.indeterminate = count > 0 && count < batchCheckboxes.length;
+            }
+        }
+
+        // Bulk actions
+        function bulkAction(action) {
+            const checkedBoxes = document.querySelectorAll('.batch-checkbox:checked');
+            const batchIds = Array.from(checkedBoxes).map(cb => cb.value);
+
+            if (batchIds.length === 0) {
+                showNotification('No batches selected', 'error');
+                return;
+            }
+
+            const confirmMessage = `Are you sure you want to ${action} ${batchIds.length} batch${batchIds.length > 1 ? 'es' : ''}?`;
+            if (!confirm(confirmMessage)) return;
+
+            // Show loading state
+            const buttons = document.querySelectorAll('#bulkActions button');
+            buttons.forEach(btn => btn.disabled = true);
+
+            // Perform the action
+            fetch(`/batch/bulk/${action}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ batch_ids: batchIds })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(`Successfully ${action}ed ${batchIds.length} batch${batchIds.length > 1 ? 'es' : ''}`, 'success');
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        showNotification(data.error || `Failed to ${action} batches`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Bulk action error:', error);
+                    showNotification(`Error ${action}ing batches`, 'error');
+                })
+                .finally(() => {
+                    buttons.forEach(btn => btn.disabled = false);
+                });
+        }
+
+        function bulkExport() {
+            const checkedBoxes = document.querySelectorAll('.batch-checkbox:checked');
+            const completedBatches = Array.from(checkedBoxes).filter(cb =>
+                cb.dataset.batchStatus === 'COMPLETED'
+            );
+
+            if (completedBatches.length === 0) {
+                showNotification('No completed batches selected for export', 'error');
+                return;
+            }
+
+            const batchIds = completedBatches.map(cb => cb.value);
+
+            // Create download link for bulk export
+            const exportUrl = `/export/bulk?batch_ids=${batchIds.join(',')}&format=csv`;
+            const link = document.createElement('a');
+            link.href = exportUrl;
+            link.download = `bulk_export_${new Date().getTime()}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showNotification(`Exporting ${batchIds.length} batch${batchIds.length > 1 ? 'es' : ''}`, 'success');
+        }
+
+        // Sidebar toggle functionality
+        function initSidebarToggle() {
+            const sidebarToggle = document.querySelector('.sidebar-toggle');
+            const sidebarNav = document.getElementById('sidebar-nav');
+            const mainContent = document.querySelector('.main-with-sidebar');
+
+            if (!sidebarToggle || !sidebarNav) return;
+
+            // Toggle sidebar on button click
+            sidebarToggle.addEventListener('click', () => {
+                const isOpen = sidebarNav.classList.toggle('open');
+                sidebarToggle.setAttribute('aria-expanded', isOpen);
+            });
+
+            // Close sidebar when a nav item is clicked
+            const navItems = sidebarNav.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    sidebarNav.classList.remove('open');
+                    sidebarToggle.setAttribute('aria-expanded', 'false');
+                });
+            });
+
+            // Close sidebar when clicking outside on mobile
+            document.addEventListener('click', (e) => {
+                if (window.innerWidth < 1024) {
+                    if (!sidebarNav.contains(e.target) && !sidebarToggle.contains(e.target)) {
+                        sidebarNav.classList.remove('open');
+                        sidebarToggle.setAttribute('aria-expanded', 'false');
+                    }
+                }
+            });
+
+            // Handle keyboard (Escape to close)
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    sidebarNav.classList.remove('open');
+                    sidebarToggle.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+
+        // ========== Batch Data Table Functionality ==========
+        let currentPage = 1;
+        let currentSort = null;
+        let sortDirection = 'asc';
+
+        async function fetchBatchData() {
+            const success = document.getElementById('filterSuccess').value;
+            const storeImage = document.getElementById('filterStoreImage').value;
+            const batchId = document.getElementById('filterBatchId').value;
+            const perPage = document.getElementById('filterPerPage').value;
+
+            // Show loading state
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('tableSection').classList.add('hidden');
+            document.getElementById('emptyState').classList.add('hidden');
+
+            const params = new URLSearchParams({
+                page: currentPage,
+                per_page: perPage,
+                success: success,
+                store_image: storeImage,
+                ...(batchId && { batch_id: batchId }),
+                ...(currentSort && { sort: `${currentSort}:${sortDirection}` })
+            });
+
+            try {
+                const response = await fetch(`/api/v1/batch-data?${params}`);
+                const data = await response.json();
+
+                if (data.data && data.data.length > 0) {
+                    populateTable(data.data);
+                    updatePagination(data.meta);
+                    document.getElementById('tableSection').classList.remove('hidden');
+                    document.getElementById('resultCount').textContent = data.meta.total;
+                } else {
+                    document.getElementById('emptyState').classList.remove('hidden');
+                    document.getElementById('resultCount').textContent = 0;
+                }
+            } catch (error) {
+                console.error('Error fetching batch data:', error);
+                document.getElementById('emptyState').classList.remove('hidden');
+                showNotification('Error loading batch data', 'error');
+            } finally {
+                document.getElementById('loadingState').classList.add('hidden');
+            }
+        }
+
+        function populateTable(rows) {
+            const tbody = document.querySelector('#batchDataTable tbody');
+            tbody.innerHTML = '';
+
+            rows.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = 'table-row hover:bg-gray-50';
+                tr.setAttribute('role', 'row');
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${row.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                            ${row.success ? '✓ Yes' : '✗ No'}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        ${row.store_image ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">✓ Yes</span>' : '<span class="text-gray-500">—</span>'}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 truncate max-w-xs" title="${escapeHtml(row.text_content || '')}">
+                            ${escapeHtml(row.text_content || '').substring(0, 50)}${row.text_content && row.text_content.length > 50 ? '...' : ''}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-900">${escapeHtml(row.store_name || '—')}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 truncate max-w-xs" title="${escapeHtml(row.business_contact || '')}">
+                            ${escapeHtml(row.business_contact || '').substring(0, 50)}${row.business_contact && row.business_contact.length > 50 ? '...' : ''}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 truncate max-w-xs" title="${escapeHtml(row.image_description || '')}">
+                            ${escapeHtml(row.image_description || '').substring(0, 50)}${row.image_description && row.image_description.length > 50 ? '...' : ''}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <a href="${escapeHtml(row.url)}" target="_blank" rel="noopener noreferrer" class="text-purple-600 hover:text-purple-700 font-medium truncate max-w-xs inline-block">
+                            ${escapeHtml(row.url.substring(0, 40))}...
+                        </a>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-900">${row.processing_time_seconds ? row.processing_time_seconds.toFixed(2) : '—'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-500">${new Date(row.created_at).toLocaleString()}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <a href="/batch/${escapeHtml(row.batch_id)}" target="_blank" class="text-purple-600 hover:text-purple-700 font-medium truncate max-w-xs inline-block">
+                            ${escapeHtml(String(row.batch_id).substring(0, 8))}...
+                        </a>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updatePagination(meta) {
+            const totalPages = Math.ceil(meta.total / meta.per_page);
+            document.getElementById('currentPage').textContent = meta.page;
+            document.getElementById('totalPages').textContent = totalPages;
+
+            const prevBtn = document.getElementById('prevButton');
+            const nextBtn = document.getElementById('nextButton');
+
+            prevBtn.disabled = meta.page <= 1;
+            nextBtn.disabled = meta.page >= totalPages;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function initBatchDataFilters() {
+            // Filter change handlers
+            const filterSuccess = document.getElementById('filterSuccess');
+            const filterStoreImage = document.getElementById('filterStoreImage');
+            const filterBatchId = document.getElementById('filterBatchId');
+            const filterPerPage = document.getElementById('filterPerPage');
+
+            if (filterSuccess) filterSuccess.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
+            if (filterStoreImage) filterStoreImage.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
+            if (filterBatchId) filterBatchId.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
+            if (filterPerPage) filterPerPage.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
+
+            // Debounce search input
+            let searchTimeout;
+            if (filterBatchId) {
+                filterBatchId.addEventListener('input', () => {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        currentPage = 1;
+                        fetchBatchData();
+                    }, 500);
+                });
+            }
+
+            // Pagination buttons
+            const prevBtn = document.getElementById('prevButton');
+            const nextBtn = document.getElementById('nextButton');
+
+            if (prevBtn) prevBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (currentPage > 1) {
+                    currentPage--;
+                    fetchBatchData();
+                }
+            });
+
+            if (nextBtn) nextBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                currentPage++;
+                fetchBatchData();
+            });
+
+            // Per-page selector
+            const perPageSelect = document.getElementById('perPageSelect');
+            if (perPageSelect) {
+                perPageSelect.addEventListener('change', (e) => {
+                    const newPerPage = e.target.value;
+                    const filterPerPage = document.getElementById('filterPerPage');
+                    if (filterPerPage) {
+                        filterPerPage.value = newPerPage;
+                        currentPage = 1;
+                        fetchBatchData();
+                    }
+                });
+            }
+
+            // Sort column headers
+            const sortHeaders = document.querySelectorAll('th[data-sort]');
+            sortHeaders.forEach(header => {
+                header.addEventListener('click', () => {
+                    const newSort = header.dataset.sort;
+                    if (currentSort === newSort) {
+                        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort = newSort;
+                        sortDirection = 'asc';
+                    }
+                    updateSortUI(header);
+                    currentPage = 1;
+                    fetchBatchData();
+                });
+
+                // Keyboard support for sorting
+                header.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        header.click();
+                    }
+                });
+            });
+
+            // Export button
+            const exportBtn = document.getElementById('exportButton');
+            if (exportBtn) {
+                exportBtn.addEventListener('click', () => {
+                    const success = document.getElementById('filterSuccess').value;
+                    const storeImage = document.getElementById('filterStoreImage').value;
+                    const batchId = document.getElementById('filterBatchId').value;
+
+                    const params = new URLSearchParams({
+                        success: success,
+                        store_image: storeImage,
+                        ...(batchId && { batch_id: batchId })
+                    });
+
+                    window.location.href = `/api/v1/batch-data/export?${params}`;
+                    showNotification('CSV export started', 'success');
+                });
+            }
+        }
+
+        function updateSortUI(activeHeader) {
+            // Reset all headers
+            document.querySelectorAll('th[data-sort]').forEach(h => {
+                h.setAttribute('aria-sort', 'none');
+                const icon = h.querySelector('.fa-sort');
+                if (icon) {
+                    icon.className = 'fas fa-sort text-xs ml-1 opacity-50';
+                }
+            });
+
+            // Update active header
+            activeHeader.setAttribute('aria-sort', sortDirection === 'asc' ? 'ascending' : 'descending');
+            const icon = activeHeader.querySelector('.fa-sort');
+            if (icon) {
+                icon.className = `fas fa-sort-${sortDirection === 'asc' ? 'up' : 'down'} text-xs ml-1`;
+            }
+        }
+
+        // Initialize batch selection when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            initBatchSelection();
+            initSidebarToggle();
+            initBatchDataFilters();
+            fetchBatchData(); // Load initial data
+        });
+    </script>
+</body>
+
+</html>

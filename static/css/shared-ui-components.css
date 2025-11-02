@@ -1,0 +1,431 @@
+/* ============================================================================
+   SHARED UI COMPONENTS - SIDEBAR & STATUS INDICATORS
+   ============================================================================ */
+
+/* Design Tokens */
+:root {
+    /* Colors */
+    --color-sidebar-bg-from: #0f172a;
+    --color-sidebar-bg-to: #1e293b;
+    --color-sidebar-text: #fff;
+    --color-sidebar-text-inactive: #d1d5db;
+    --color-sidebar-hover-bg: rgba(168, 85, 247, 0.15);
+    --color-sidebar-active-from: #a855f7;
+    --color-sidebar-active-to: #9333ea;
+    --color-sidebar-active-shadow: rgba(168, 85, 247, 0.4);
+
+    /* Status Colors */
+    --color-status-healthy: #10b981;
+    --color-status-error: #ef4444;
+    --color-status-warning: #f59e0b;
+    --color-status-healthy-shadow: rgba(16, 185, 129, 0.2);
+    --color-status-error-shadow: rgba(239, 68, 68, 0.2);
+    --color-status-warning-shadow: rgba(245, 158, 11, 0.2);
+
+    /* Spacing */
+    --sidebar-width: 16rem;
+    /* 256px */
+    --sidebar-item-py: 0.75rem;
+    --sidebar-item-px: 1rem;
+
+    /* Typography */
+    --sidebar-title-size: 1.125rem;
+    /* text-lg */
+    --sidebar-title-weight: 600;
+    --sidebar-item-size: 0.875rem;
+    /* text-sm */
+}
+
+/* ============================================================================
+   SIDEBAR NAVIGATION COMPONENT
+   ============================================================================ */
+
+.sidebar-nav {
+    background: linear-gradient(180deg, var(--color-sidebar-bg-from) 0%, var(--color-sidebar-bg-to) 100%);
+    /* Fixed positioning is handled by container */
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    z-index: 30;
+    transition: transform 0.3s ease-in-out;
+    overflow-y: auto;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile: Hidden by default, show with transform */
+@media (max-width: 1023px) {
+    .sidebar-nav {
+        transform: translateX(-100%);
+    }
+
+    .sidebar-nav.open {
+        transform: translateX(0);
+    }
+}
+
+/* Desktop: Visible by default */
+@media (min-width: 1024px) {
+    .sidebar-nav {
+        transform: translateX(0);
+    }
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 4rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0 1rem;
+}
+
+.sidebar-header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.sidebar-header-logo {
+    width: 2.5rem;
+    height: 2.5rem;
+    background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sidebar-header-logo-icon {
+    color: white;
+    font-size: 1.125rem;
+}
+
+.sidebar-header-text {
+    color: var(--color-sidebar-text);
+    font-size: 1.25rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Sidebar Navigation */
+.sidebar-nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 2rem 1rem;
+    list-style: none;
+    margin: 0;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: var(--sidebar-item-py) var(--sidebar-item-px);
+    color: var(--color-sidebar-text-inactive);
+    text-decoration: none;
+    border-radius: 0.5rem;
+    font-size: var(--sidebar-item-size);
+    font-weight: 500;
+    transition: all 0.2s ease;
+    position: relative;
+    cursor: pointer;
+    border-left: 4px solid transparent;
+    margin-left: -4px;
+    /* Compensate for border width */
+}
+
+/* Nav Item States */
+.nav-item:hover {
+    background-color: var(--color-sidebar-hover-bg);
+    color: var(--color-sidebar-text);
+}
+
+.nav-item:focus-visible {
+    outline: 2px solid var(--color-sidebar-active-from);
+    outline-offset: -2px;
+    background-color: rgba(168, 85, 247, 0.1);
+}
+
+.nav-item.active,
+.nav-item[aria-current="page"] {
+    background: linear-gradient(135deg, var(--color-sidebar-active-from) 0%, var(--color-sidebar-active-to) 100%);
+    color: white;
+    font-weight: 600;
+    border-left-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 15px var(--color-sidebar-active-shadow);
+}
+
+.nav-item-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-item-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Collapsed sidebar state */
+.sidebar-nav.collapsed {
+    width: 5rem;
+}
+
+.sidebar-nav.collapsed .sidebar-header-text,
+.sidebar-nav.collapsed .nav-item-label {
+    display: none;
+}
+
+.sidebar-nav.collapsed .nav-item {
+    justify-content: center;
+    padding: 0.75rem;
+}
+
+/* Sidebar Footer - System Status */
+.sidebar-footer {
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+    background-color: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    backdrop-filter: blur(10px);
+}
+
+.status-section-title {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.status-indicator {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    display: inline-block;
+    animation: pulse-indicator 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.status-indicator.healthy {
+    background-color: var(--color-status-healthy);
+    box-shadow: 0 0 0 2px var(--color-status-healthy-shadow);
+}
+
+.status-indicator.error {
+    background-color: var(--color-status-error);
+    box-shadow: 0 0 0 2px var(--color-status-error-shadow);
+    animation: pulse-indicator-error 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.status-indicator.warning {
+    background-color: var(--color-status-warning);
+    box-shadow: 0 0 0 2px var(--color-status-warning-shadow);
+    animation: pulse-indicator-warning 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.status-text {
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-meta {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 0.25rem;
+}
+
+/* ============================================================================
+   SYSTEM STATUS HEADER COMPONENT
+   ============================================================================ */
+
+.system-status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    gap: 1rem;
+}
+
+.system-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+
+.system-status-badge.healthy {
+    background-color: #f0fdf4;
+    border-color: #86efac;
+    color: #166534;
+}
+
+.system-status-badge.warning {
+    background-color: #fffbeb;
+    border-color: #fcd34d;
+    color: #92400e;
+}
+
+.system-status-badge.error {
+    background-color: #fef2f2;
+    border-color: #fca5a5;
+    color: #991b1b;
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes pulse-indicator {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+}
+
+@keyframes pulse-indicator-error {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes pulse-indicator-warning {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+}
+
+/* ============================================================================
+   RESPONSIVE & UTILITIES
+   ============================================================================ */
+
+/* Main content layout */
+.main-with-sidebar {
+    margin-left: var(--sidebar-width);
+    transition: margin-left 0.3s ease-in-out;
+}
+
+@media (max-width: 1023px) {
+    .main-with-sidebar {
+        margin-left: 0;
+    }
+
+    .main-with-sidebar.sidebar-open {
+        margin-left: 0;
+    }
+}
+
+/* Hamburger Menu Button */
+.sidebar-toggle {
+    display: none;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0.5rem;
+    background: none;
+    border: none;
+    color: #4b5563;
+    cursor: pointer;
+    border-radius: 0.375rem;
+    transition: background-color 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+    background-color: #f3f4f6;
+}
+
+.sidebar-toggle:focus-visible {
+    outline: 2px solid var(--color-sidebar-active-from);
+    outline-offset: 2px;
+}
+
+@media (max-width: 1023px) {
+    .sidebar-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+/* Accessibility - Skip to content */
+.skip-to-main {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: #000;
+    color: white;
+    padding: 8px;
+    text-decoration: none;
+    z-index: 100;
+}
+
+.skip-to-main:focus {
+    top: 0;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+
+    .nav-item,
+    .sidebar-nav,
+    .status-indicator {
+        transition: none;
+        animation: none;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: more) {
+    .nav-item:focus-visible {
+        outline-width: 3px;
+    }
+
+    .sidebar-nav {
+        border-right: 2px solid white;
+    }
+}

@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Image Analyzer Enterprise</title>
+
+    <!-- Modern CSS Framework and Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/shared-ui-components.css') }}" rel="stylesheet">
+
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .admin-gradient {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #581c87 100%);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .admin-header-card {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #581c87 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .metric-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+            border-color: #d946ef;
+        }
+
+        .danger-card {
+            background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
+            border: 1px solid #fca5a5;
+            box-shadow: 0 4px 12px rgba(252, 165, 165, 0.15);
+        }
+
+        .warning-card {
+            background: linear-gradient(135deg, #fffbeb 0%, #fed7aa 100%);
+            border: 1px solid #fdba74;
+            box-shadow: 0 4px 12px rgba(253, 186, 116, 0.15);
+        }
+
+        .success-card {
+            background: linear-gradient(135deg, #f0fdf4 0%, #bbf7d0 100%);
+            border: 1px solid #86efac;
+            box-shadow: 0 4px 12px rgba(134, 239, 172, 0.15);
+        }
+
+        .admin-table {
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .table-header {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        }
+
+        .admin-table tbody tr {
+            border-bottom: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+
+        .admin-table tbody tr:hover {
+            background: linear-gradient(90deg, transparent 0%, rgba(168, 85, 247, 0.05) 100%);
+        }
+
+        .action-btn {
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-healthy {
+            background: #10b981;
+        }
+
+        .status-warning {
+            background: #f59e0b;
+        }
+
+        .status-error {
+            background: #ef4444;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+            transition: width 0.3s ease;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        /* Loading states */
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        /* Loading skeleton animations */
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+
+        /* Performance optimizations */
+        .metric-card {
+            will-change: transform;
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            .metric-card {
+                padding: 1rem;
+            }
+
+            .text-2xl {
+                font-size: 1.5rem;
+            }
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .notification {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 50;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+    <!-- Mobile Hamburger Menu Button -->
+    <button class="sidebar-toggle fixed top-4 left-4 z-40 lg:hidden" aria-label="Toggle sidebar navigation"
+        aria-expanded="false" aria-controls="sidebar-nav">
+        <i class="fas fa-bars text-xl"></i>
+    </button>
+
+    <!-- Sidebar Navigation -->
+    <nav id="sidebar-nav" class="sidebar-nav" role="navigation" aria-label="Main navigation">
+
+        <!-- Sidebar Header -->
+        <div class="sidebar-header">
+            <div class="sidebar-header-content">
+                <div class="sidebar-header-logo">
+                    <i class="fas fa-cogs sidebar-header-logo-icon"></i>
+                </div>
+                <span class="sidebar-header-text">Admin</span>
+            </div>
+        </div>
+
+        <!-- Navigation Items -->
+        <ul class="sidebar-nav-list">
+            <li>
+                <a href="/" class="nav-item" role="menuitem">
+                    <i class="fas fa-tachometer-alt nav-item-icon"></i>
+                    <span class="nav-item-label">Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="/admin" class="nav-item" role="menuitem" aria-current="page">
+                    <i class="fas fa-cogs nav-item-icon"></i>
+                    <span class="nav-item-label">Administration</span>
+                </a>
+            </li>
+            <li>
+                <a href="/system/status" class="nav-item" role="menuitem">
+                    <i class="fas fa-chart-line nav-item-icon"></i>
+                    <span class="nav-item-label">System Status</span>
+                </a>
+            </li>
+            <li>
+                <a href="/export/template" class="nav-item" role="menuitem">
+                    <i class="fas fa-download nav-item-icon"></i>
+                    <span class="nav-item-label">Templates</span>
+                </a>
+            </li>
+        </ul>
+
+        <!-- Sidebar Footer - System Status -->
+        <div class="sidebar-footer" role="status" aria-live="polite" aria-label="System status">
+            <div class="status-section-title">
+                <span class="status-indicator healthy" aria-label="System connection status"></span>
+                System Status
+            </div>
+            <div class="status-text">
+                <span class="status-indicator healthy"></span>
+                Online
+            </div>
+            <div class="status-meta">Ready to serve</div>
+        </div>
+    </nav>
+
+    <!-- Main Content Wrapper -->
+    <div class="main-with-sidebar">
+        <!-- Top Navigation Bar -->
+        <header class="bg-white shadow-sm border-b border-gray-200">
+            <div class="flex items-center justify-between px-6 py-4">
+                <div class="flex items-center">
+                    <button class="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1 class="ml-4 text-2xl font-bold text-gray-900">Administration Panel</h1>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-500">
+                        <i class="fas fa-clock mr-1"></i>
+                        Last updated: <span id="lastUpdated">-</span>
+                    </div>
+                    <button onclick="refreshData()" class="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Content -->
+        <main class="p-6 space-y-6">
+            <!-- Admin Header -->
+            <div class="admin-header-card rounded-2xl p-6 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-3xl font-bold mb-2">System Administration</h2>
+                        <p class="text-blue-100 text-lg">Monitor, manage, and maintain your enterprise processing system
+                        </p>
+                    </div>
+                    <div class="hidden md:block">
+                        <div class="bg-white bg-opacity-20 rounded-lg p-4">
+                            <div class="text-2xl font-bold" id="systemHealthScore">98%</div>
+                            <div class="text-sm text-blue-100">System Health</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Overview Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Total Batches -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Total Batches</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2" id="totalBatches">{{
+                                system_stats.total_batches | default(0) }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-layer-group text-blue-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        <span class="status-indicator status-healthy"></span>
+                        <span class="text-gray-500">All systems operational</span>
+                    </div>
+                </div>
+
+                <!-- Active Batches -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Active Batches</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2" id="activeBatches">{{
+                                system_stats.active_batches | default(0) }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-play-circle text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        <span class="status-indicator status-healthy"></span>
+                        <span class="text-gray-500">Processing normally</span>
+                    </div>
+                </div>
+
+                <!-- Queue Status -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Queue Size</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2" id="queueSize">{{
+                                queue_status.queue_stats.pending | default(0) }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-clock text-orange-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        <span
+                            class="status-indicator {% if queue_status.total_stuck > 0 %}status-warning{% else %}status-healthy{% endif %}"></span>
+                        <span class="text-gray-500">{{ queue_status.total_stuck | default(0) }} stuck jobs</span>
+                    </div>
+                </div>
+
+                <!-- Processing Rate -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Avg Success Rate</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2" id="successRate">{{
+                                "%.1f"|format(system_stats.average_success_rate|default(0)) }}%</p>
+                        </div>
+                        <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-chart-line text-purple-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm">
+                        <span class="status-indicator status-healthy"></span>
+                        <span class="text-gray-500">Excellent performance</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stuck Jobs Alert -->
+            {% if queue_status.total_stuck > 0 %}
+            <div class="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-2xl p-6">
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <div class="w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-exclamation-triangle text-white"></i>
+                        </div>
+                    </div>
+                    <div class="ml-4 flex-1">
+                        <h3 class="text-lg font-semibold text-yellow-800">Stuck Jobs Detected</h3>
+                        <p class="text-yellow-700 mt-1">Found {{ queue_status.total_stuck }} stuck jobs in the queue
+                            that may need attention.</p>
+                        <div class="mt-4">
+                            <button onclick="cleanupQueue()"
+                                class="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors">
+                                <i class="fas fa-broom mr-2"></i>
+                                Clean Up Queue
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Detailed Queue Statistics -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Queue Status Details -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <i class="fas fa-list-ul text-blue-500 mr-3"></i>
+                        Queue Status Details
+                    </h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center p-4 bg-blue-50 rounded-lg">
+                            <div class="text-2xl font-bold text-blue-600" id="pendingJobs">{{
+                                queue_status.queue_stats.pending |
+                                default(0) }}</div>
+                            <div class="text-sm text-gray-600">Pending</div>
+                        </div>
+                        <div class="text-center p-4 bg-green-50 rounded-lg">
+                            <div class="text-2xl font-bold text-green-600" id="processingJobs">{{
+                                queue_status.queue_stats.processing |
+                                default(0) }}</div>
+                            <div class="text-sm text-gray-600">Processing</div>
+                        </div>
+                        <div class="text-center p-4 bg-yellow-50 rounded-lg">
+                            <div class="text-2xl font-bold text-yellow-600">{{ queue_status.queue_stats.retrying |
+                                default(0) }}</div>
+                            <div class="text-sm text-gray-600">Retrying</div>
+                        </div>
+                        <div class="text-center p-4 bg-purple-50 rounded-lg">
+                            <div class="text-2xl font-bold text-purple-600" id="completedJobs">{{
+                                queue_status.queue_stats.completed |
+                                default(0) }}</div>
+                            <div class="text-sm text-gray-600">Completed</div>
+                        </div>
+                        {% if queue_status.queue_stats.failed is defined %}
+                        <div class="text-center p-4 bg-red-50 rounded-lg col-span-2">
+                            <div class="text-2xl font-bold text-red-600" id="failedJobs">{{
+                                queue_status.queue_stats.failed | default(0)
+                                }}</div>
+                            <div class="text-sm text-gray-600">Failed</div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mt-4 flex space-x-2">
+                        <button onclick="refreshQueueStatus()"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                            <i class="fas fa-sync-alt mr-1"></i>
+                            Refresh
+                        </button>
+                        <button onclick="cleanupQueue()"
+                            class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm">
+                            <i class="fas fa-broom mr-1"></i>
+                            Clean Up
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Overview -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <i class="fas fa-server text-purple-500 mr-3"></i>
+                        System Overview
+                    </h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center p-4 bg-gray-50 rounded-lg">
+                            <div class="text-2xl font-bold text-gray-900">{{ system_stats.total_batches | default(0) }}
+                            </div>
+                            <div class="text-sm text-gray-600">Total Batches</div>
+                        </div>
+                        <div class="text-center p-4 bg-gray-50 rounded-lg">
+                            <div class="text-2xl font-bold text-gray-900">{{ system_stats.active_batches | default(0) }}
+                            </div>
+                            <div class="text-sm text-gray-600">Active Batches</div>
+                        </div>
+                        <div class="text-center p-4 bg-gray-50 rounded-lg">
+                            <div class="text-2xl font-bold text-gray-900">{{ "{:,}".format(system_stats.total_processed
+                                | default(0)) }}</div>
+                            <div class="text-sm text-gray-600">URLs Processed</div>
+                        </div>
+                        <div class="text-center p-4 bg-gray-50 rounded-lg">
+                            <div class="text-2xl font-bold text-gray-900">{{
+                                "{:.1f}".format(system_stats.average_success_rate | default(0)) }}%</div>
+                            <div class="text-sm text-gray-600">Success Rate</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <a href="/system/status"
+                            class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm">
+                            <i class="fas fa-chart-bar mr-1"></i>
+                            Full System Status
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stuck Jobs Details Table -->
+            {% if queue_status.stuck_jobs %}
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 bg-red-50 border-b border-red-200">
+                    <h3 class="text-lg font-semibold text-red-800 flex items-center">
+                        <i class="fas fa-exclamation-circle text-red-600 mr-3"></i>
+                        Stuck Jobs Details
+                    </h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Job ID</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Type</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Status</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Retries</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Batch</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Created</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            {% for job in queue_status.stuck_jobs %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                                    {{ job.job_id[:8] }}...
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ job.job_type }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                                        {{ job.status }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ job.retries | default(0) }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ job.batch_id[:8] if job.batch_id else 'N/A' }}...
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {{ job.created_at.strftime('%Y-%m-%d %H:%M') if job.created_at else 'N/A' }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button onclick="retryJob('{{ job.job_id }}')"
+                                        class="text-blue-600 hover:text-blue-900 mr-2">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                    <button onclick="deleteJob('{{ job.job_id }}')"
+                                        class="text-red-600 hover:text-red-900">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Action Buttons -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Queue Management -->
+                <div class="success-card rounded-2xl p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-tasks text-white"></i>
+                        </div>
+                        <h3 class="ml-3 text-lg font-semibold text-gray-900">Queue Management</h3>
+                    </div>
+                    <p class="text-gray-600 mb-4">Monitor and manage the job queue status</p>
+                    <button onclick="showQueueStatus()"
+                        class="w-full bg-green-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-green-700 transition-colors action-btn">
+                        <i class="fas fa-eye mr-2"></i>
+                        View Queue Status
+                    </button>
+                </div>
+
+                <!-- Cleanup Operations -->
+                <div class="warning-card rounded-2xl p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-broom text-white"></i>
+                        </div>
+                        <h3 class="ml-3 text-lg font-semibold text-gray-900">System Cleanup</h3>
+                    </div>
+                    <p class="text-gray-600 mb-4">Clean up stuck jobs and optimize performance</p>
+                    <button onclick="performCleanup()"
+                        class="w-full bg-yellow-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-yellow-700 transition-colors action-btn">
+                        <i class="fas fa-broom mr-2"></i>
+                        Cleanup Stuck Jobs
+                    </button>
+                </div>
+
+                <!-- Emergency Actions -->
+                <div class="danger-card rounded-2xl p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-exclamation-triangle text-white"></i>
+                        </div>
+                        <h3 class="ml-3 text-lg font-semibold text-gray-900">Emergency Actions</h3>
+                    </div>
+                    <p class="text-gray-600 mb-4">Reset systems and handle critical issues</p>
+                    <button onclick="showEmergencyActions()"
+                        class="w-full bg-red-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-red-700 transition-colors action-btn">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        Emergency Tools
+                    </button>
+                </div>
+            </div>
+
+            <!-- Recent Activity and Logs -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Queue Recommendations -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <i class="fas fa-lightbulb text-yellow-500 mr-3"></i>
+                        System Recommendations
+                    </h3>
+                    <div class="space-y-3" id="recommendations">
+                        {% for recommendation in queue_status.recommendations %}
+                        <div class="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                            <i class="fas fa-info-circle text-blue-500 mt-1"></i>
+                            <span class="text-gray-700">{{ recommendation }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- System Health Monitor -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <i class="fas fa-heartbeat text-red-500 mr-3"></i>
+                        System Health
+                    </h3>
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">Database Connection</span>
+                            <span class="flex items-center text-green-600">
+                                <span class="status-indicator status-healthy"></span>
+                                Connected
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">Redis Queue</span>
+                            <span class="flex items-center text-green-600">
+                                <span class="status-indicator status-healthy"></span>
+                                Operational
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">Background Workers</span>
+                            <span class="flex items-center text-green-600">
+                                <span class="status-indicator status-healthy"></span>
+                                Running
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">API Services</span>
+                            <span class="flex items-center text-green-600">
+                                <span class="status-indicator status-healthy"></span>
+                                Available
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Batch Management Table -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xl font-bold text-gray-900 flex items-center">
+                            <i class="fas fa-list text-blue-600 mr-3"></i>
+                            Batch Management
+                            <span class="ml-2 text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
+                                id="batchCount">0 batches</span>
+                        </h3>
+                        <div class="flex space-x-2">
+                            <button onclick="refreshBatches()"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                                <i class="fas fa-sync-alt mr-1"></i>
+                                Refresh
+                            </button>
+                            <button onclick="showBatchActions()"
+                                class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+                                <i class="fas fa-tools mr-1"></i>
+                                Batch Actions
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full" id="batchTable">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                    Batch ID</th>
+                                <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                    Status</th>
+                                <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                    Progress</th>
+                                <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                    URLs</th>
+                                <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                    Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="batchTableBody">
+                            <tr>
+                                <td colspan="5" class="px-6 py-8 text-center text-gray-500">
+                                    <div class="loading-spinner mx-auto mb-2"></div>
+                                    Loading batch data...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals and JavaScript -->
+    <script>
+        // Global variables
+        let refreshInterval;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function () {
+            refreshData();
+            updateLastUpdated();
+
+            // Auto-refresh every 30 seconds
+            refreshInterval = setInterval(refreshData, 30000);
+        });
+
+        // Update last updated timestamp
+        function updateLastUpdated() {
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Refresh all data
+        async function refreshData() {
+            try {
+                await Promise.all([
+                    refreshSystemStats(),
+                    refreshQueueStatus(),
+                    refreshBatches()
+                ]);
+                updateLastUpdated();
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                showNotification('Failed to refresh data', 'error');
+            }
+        }
+
+        // Refresh system statistics
+        async function refreshSystemStats() {
+            try {
+                const response = await fetch('/api/v1/system/stats');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('totalBatches').textContent = data.data.total_batches || 0;
+                    document.getElementById('activeBatches').textContent = data.data.active_batches || 0;
+                    document.getElementById('successRate').textContent = (data.data.average_success_rate || 0).toFixed(1) + '%';
+                }
+            } catch (error) {
+                console.error('Error refreshing system stats:', error);
+            }
+        }
+
+        // Refresh queue status
+        async function refreshQueueStatus() {
+            try {
+                const response = await fetch('/admin/queue/status');
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update queue statistics in the UI
+                    const queueData = data.data.queue_stats;
+                    document.getElementById('pendingJobs').textContent = queueData.pending || 0;
+                    document.getElementById('processingJobs').textContent = queueData.processing || 0;
+                    document.getElementById('completedJobs').textContent = queueData.completed || 0;
+
+                    // Update failed jobs if the element exists
+                    const failedElement = document.getElementById('failedJobs');
+                    if (failedElement) {
+                        failedElement.textContent = queueData.failed || 0;
+                    }
+
+                    // Update queue size in the main metrics
+                    const queueSizeElement = document.getElementById('queueSize');
+                    if (queueSizeElement) {
+                        queueSizeElement.textContent = queueData.pending || 0;
+                    }
+
+                    // Update last updated time
+                    updateLastUpdated();
+                } else {
+                    showNotification('Failed to refresh queue status', 'error');
+                }
+            } catch (error) {
+                console.error('Error refreshing queue status:', error);
+                showNotification('Error refreshing queue status', 'error');
+            }
+        }        // Clean up queue
+        async function cleanupQueue() {
+            if (!confirm('This will remove stuck jobs from Redis queue AND reset stuck batches in database. Continue?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/queue/cleanup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_types: ['process_chunk', 'chunk_processing'],
+                        max_age_hours: 24,
+                        clean_database: true
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const data = result.data;
+                    let message = 'Cleanup completed!\n';
+                    message += `• Redis jobs removed: ${data.redis_removed_count}\n`;
+                    message += `• Database batches reset: ${data.db_reset_count}\n`;
+                    message += `• Jobs kept: ${data.kept_count}`;
+
+                    showNotification(message.replace(/\n/g, '<br>'), 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showNotification('Cleanup failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Cleanup failed: Network error', 'error');
+            }
+        }
+
+        // Retry individual job
+        async function retryJob(jobId) {
+            if (!confirm('Are you sure you want to retry this job?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/job/${jobId}/retry`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Job queued for retry', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification('Retry failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Retry failed: Network error', 'error');
+            }
+        }
+
+        // Delete individual job
+        async function deleteJob(jobId) {
+            if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/job/${jobId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Job deleted successfully', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification('Delete failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Delete failed: Network error', 'error');
+            }
+        }        // Refresh batches table
+        async function refreshBatches() {
+            try {
+                const response = await fetch('/api/v1/batches?limit=50');
+                const data = await response.json();
+
+                console.log('Admin Dashboard - API Response:', data);
+
+                if (data.success) {
+                    const tbody = document.getElementById('batchTableBody');
+                    tbody.innerHTML = '';
+
+                    const allBatches = data.data.batches || [];
+
+                    // For admin dashboard, show all recent batches, not just stuck ones
+                    // Priority: PROCESSING > QUEUED > FAILED > others
+                    const batches = allBatches.sort((a, b) => {
+                        const statusPriority = {
+                            'PROCESSING': 1,
+                            'QUEUED': 2,
+                            'FAILED': 3,
+                            'PENDING': 4,
+                            'COMPLETED': 5,
+                            'CANCELLED': 6
+                        };
+                        return (statusPriority[a.status] || 7) - (statusPriority[b.status] || 7);
+                    });
+
+                    console.log('Admin Dashboard - Total batches received:', allBatches.length);
+                    console.log('Admin Dashboard - Batches to display:', batches.length);
+
+                    // Update batch counter
+                    const batchCountElement = document.getElementById('batchCount');
+                    if (batchCountElement) {
+                        batchCountElement.textContent = `${batches.length} batch${batches.length !== 1 ? 'es' : ''}`;
+                    }
+
+                    if (batches.length === 0) {
+                        tbody.innerHTML = `
+                            <tr>
+                                <td colspan="5" class="px-6 py-8 text-center text-gray-500">
+                                    No batches found
+                                </td>
+                            </tr>
+                        `;
+                        return;
+                    }
+
+                    batches.forEach(batch => {
+                        const row = document.createElement('tr');
+                        row.className = 'hover:bg-gray-50 transition-colors';
+                        row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-900">${batch.batch_name}</div>
+                                <div class="text-xs text-gray-500">${batch.batch_id.substring(0, 8)}...</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(batch.status)}">
+                                    ${batch.status.toUpperCase()}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center">
+                                    <div class="w-20 bg-gray-200 rounded-full h-2 mr-3">
+                                        <div class="progress-bar h-2 rounded-full" style="width: ${batch.progress_percentage || 0}%"></div>
+                                    </div>
+                                    <span class="text-sm text-gray-700">${Math.round(batch.progress_percentage || 0)}%</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${batch.total_urls} total<br>
+                                <span class="text-xs text-gray-500">${batch.processed_count || 0} processed</span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                                <a href="/batch/${batch.batch_id}" target="_blank" 
+                                   class="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors">
+                                    <i class="fas fa-external-link-alt text-xs mr-1"></i>
+                                    View Details
+                                </a>
+                                <button onclick="resetBatch('${batch.batch_id}')" 
+                                        class="inline-flex items-center px-3 py-1 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition-colors">
+                                    <i class="fas fa-redo text-xs mr-1"></i>
+                                    Reset
+                                </button>
+                                <button onclick="deleteBatch('${batch.batch_id}')" 
+                                        class="inline-flex items-center px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors">
+                                    <i class="fas fa-trash text-xs mr-1"></i>
+                                    Delete
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
+            } catch (error) {
+                console.error('Error refreshing batches:', error);
+            }
+        }
+
+        // Get status color classes
+        function getStatusColor(status) {
+            const colors = {
+                'pending': 'bg-yellow-100 text-yellow-800',
+                'queued': 'bg-blue-100 text-blue-800',
+                'processing': 'bg-green-100 text-green-800',
+                'completed': 'bg-purple-100 text-purple-800',
+                'failed': 'bg-red-100 text-red-800',
+                'cancelled': 'bg-gray-100 text-gray-800',
+                'paused': 'bg-orange-100 text-orange-800'
+            };
+            return colors[status] || 'bg-gray-100 text-gray-800';
+        }
+
+        // Show queue status modal
+        function showQueueStatus() {
+            showNotification('Queue status displayed in recommendations panel', 'info');
+        }
+
+        // Perform cleanup
+        async function performCleanup() {
+            if (!confirm('Are you sure you want to clean up stuck jobs? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/queue/cleanup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_types: ['process_chunk', 'chunk_processing'],
+                        max_age_hours: 24,
+                        clean_database: true
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(`Cleanup completed: ${result.data.redis_removed_count} jobs removed`, 'success');
+                    refreshData();
+                } else {
+                    showNotification('Cleanup failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Cleanup failed: Network error', 'error');
+            }
+        }
+
+        // Show emergency actions
+        function showEmergencyActions() {
+            if (confirm('Emergency actions can affect system stability. Continue?')) {
+                showNotification('Emergency tools are available via API endpoints', 'warning');
+            }
+        }
+
+        // View batch details
+        function viewBatch(batchId) {
+            window.open(`/batch/${batchId}`, '_blank');
+        }
+
+        // Reset batch
+        async function resetBatch(batchId) {
+            if (!confirm('Are you sure you want to reset this batch?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/batch/${batchId}/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: false })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Batch reset successfully', 'success');
+                    refreshBatches();
+                } else {
+                    showNotification('Reset failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Reset failed: Network error', 'error');
+            }
+        }
+
+        // Delete batch
+        async function deleteBatch(batchId) {
+            if (!confirm('Are you sure you want to delete this batch? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/batches/${batchId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Batch deleted successfully', 'success');
+                    refreshBatches();
+                } else {
+                    showNotification('Delete failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Delete failed: Network error', 'error');
+            }
+        }
+
+        // Show batch actions
+        function showBatchActions() {
+            showNotification('Batch actions available via individual batch controls', 'info');
+        }
+
+        // Notification system
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification p-4 rounded-lg shadow-lg ${type === 'success' ? 'bg-green-500 text-white' :
+                type === 'error' ? 'bg-red-500 text-white' :
+                    type === 'warning' ? 'bg-yellow-500 text-white' :
+                        'bg-blue-500 text-white'
+                }`;
+
+            notification.innerHTML = `
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 100);
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+
+        // Sidebar toggle functionality
+        function initSidebarToggle() {
+            const sidebarToggle = document.querySelector('.sidebar-toggle');
+            const sidebarNav = document.getElementById('sidebar-nav');
+
+            if (!sidebarToggle || !sidebarNav) return;
+
+            // Toggle sidebar on button click
+            sidebarToggle.addEventListener('click', () => {
+                const isOpen = sidebarNav.classList.toggle('open');
+                sidebarToggle.setAttribute('aria-expanded', isOpen);
+            });
+
+            // Close sidebar when a nav item is clicked
+            const navItems = sidebarNav.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    sidebarNav.classList.remove('open');
+                    sidebarToggle.setAttribute('aria-expanded', 'false');
+                });
+            });
+
+            // Close sidebar when clicking outside on mobile
+            document.addEventListener('click', (e) => {
+                if (window.innerWidth < 1024) {
+                    if (!sidebarNav.contains(e.target) && !sidebarToggle.contains(e.target)) {
+                        sidebarNav.classList.remove('open');
+                        sidebarToggle.setAttribute('aria-expanded', 'false');
+                    }
+                }
+            });
+
+            // Handle keyboard (Escape to close)
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    sidebarNav.classList.remove('open');
+                    sidebarToggle.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+
+        // Initialize on DOM load
+        document.addEventListener('DOMContentLoaded', initSidebarToggle);
+    </script>
+</body>
+
+</html>

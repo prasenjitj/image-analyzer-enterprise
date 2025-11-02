@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Details - {{ batch.batch_name }} | Image Analyzer Enterprise</title>
+
+    <!-- Modern CSS Framework and Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .detail-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+
+        .admin-header-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .metric-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+            border-color: #d946ef;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-pending {
+            background: #f59e0b;
+        }
+
+        .status-queued {
+            background: #3b82f6;
+        }
+
+        .status-processing {
+            background: #10b981;
+        }
+
+        .status-completed {
+            background: #8b5cf6;
+        }
+
+        .status-failed {
+            background: #ef4444;
+        }
+
+        .status-cancelled {
+            background: #6b7280;
+        }
+
+        .status-paused {
+            background: #f97316;
+        }
+
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+
+        .progress-circle {
+            stroke: #3b82f6;
+            stroke-width: 4;
+            fill: none;
+            stroke-linecap: round;
+            transition: stroke-dasharray 0.3s ease;
+        }
+
+        .progress-bg {
+            stroke: #e5e7eb;
+            stroke-width: 4;
+            fill: none;
+        }
+
+        .detail-table {
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .table-header {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        }
+
+        .action-btn {
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-left: 3rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: 0.75rem;
+            top: 0;
+            bottom: -1.5rem;
+            width: 2px;
+            background: #e5e7eb;
+        }
+
+        .timeline-item:last-child::before {
+            display: none;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: 0.5rem;
+            top: 0.5rem;
+            width: 1rem;
+            height: 1rem;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 0 2px #3b82f6;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .filter-tag {
+            background: linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%);
+            border: 1px solid #a78bfa;
+            transition: all 0.2s ease;
+        }
+
+        .filter-tag:hover {
+            background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 100%);
+            color: white;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .notification {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 50;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .sidebar-nav {
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+        }
+
+        .nav-item {
+            transition: all 0.2s ease;
+        }
+
+        .nav-item:hover {
+            background: rgba(168, 85, 247, 0.15);
+            border-left: 4px solid #a855f7;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+    <!-- Sidebar Navigation -->
+    <div
+        class="fixed inset-y-0 left-0 w-64 sidebar-nav transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out z-30">
+        <div class="flex items-center justify-center h-16 border-b border-gray-700">
+            <div class="flex items-center space-x-3">
+                <div
+                    class="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-layer-group text-white text-lg"></i>
+                </div>
+                <span class="text-white text-xl font-bold">Batch Details</span>
+            </div>
+        </div>
+
+        <nav class="mt-8">
+            <div class="px-4 space-y-2">
+                <a href="/" class="nav-item flex items-center px-4 py-3 text-gray-300 hover:text-white rounded-lg">
+                    <i class="fas fa-tachometer-alt w-5 h-5 mr-3"></i>
+                    Dashboard
+                </a>
+                <a href="/admin" class="nav-item flex items-center px-4 py-3 text-gray-300 hover:text-white rounded-lg">
+                    <i class="fas fa-cogs w-5 h-5 mr-3"></i>
+                    Administration
+                </a>
+                <a href="/system/status"
+                    class="nav-item flex items-center px-4 py-3 text-gray-300 hover:text-white rounded-lg">
+                    <i class="fas fa-chart-line w-5 h-5 mr-3"></i>
+                    System Status
+                </a>
+                <a href="/export/template"
+                    class="nav-item flex items-center px-4 py-3 text-gray-300 hover:text-white rounded-lg">
+                    <i class="fas fa-download w-5 h-5 mr-3"></i>
+                    Export Templates
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <div class="lg:ml-64">
+        <!-- Top Navigation Bar -->
+        <header class="bg-white shadow-sm border-b border-gray-200">
+            <div class="flex items-center justify-between px-6 py-4">
+                <div class="flex items-center">
+                    <button class="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <nav class="flex items-center space-x-2 ml-4">
+                        <a href="/" class="text-gray-500 hover:text-gray-700">Dashboard</a>
+                        <i class="fas fa-chevron-right text-gray-400 text-sm"></i>
+                        <span class="text-gray-900 font-medium">{{ batch.batch_name }}</span>
+                    </nav>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-500">
+                        <i class="fas fa-clock mr-1"></i>
+                        Last updated: <span id="lastUpdated">-</span>
+                    </div>
+                    <button onclick="refreshData()" class="p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Content -->
+        <main class="p-6 space-y-6">
+            <!-- Batch Header -->
+            <div class="glass-card rounded-2xl p-6 detail-gradient text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-3xl font-bold mb-2">{{ batch.batch_name }}</h1>
+                        <p class="text-purple-100 text-lg mb-4">{{ batch.description or "Batch processing details and
+                            analytics" }}</p>
+                        <div class="flex items-center space-x-6">
+                            <div class="flex items-center">
+                                <span class="status-indicator status-{{ batch.status.lower() }}"></span>
+                                <span class="text-sm font-medium">{{ batch.status.upper() }}</span>
+                            </div>
+                            <div class="text-sm">
+                                <i class="fas fa-calendar-alt mr-1"></i>
+                                Created: {{ batch.created_at.strftime('%Y-%m-%d %H:%M') if batch.created_at else
+                                'Unknown' }}
+                            </div>
+                            <div class="text-sm">
+                                <i class="fas fa-user mr-1"></i>
+                                ID: {{ batch.batch_id[:8] }}...
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hidden md:block">
+                        <div class="relative w-24 h-24">
+                            <svg class="w-24 h-24 progress-ring">
+                                <circle class="progress-bg" cx="48" cy="48" r="40"></circle>
+                                <circle class="progress-circle" cx="48" cy="48" r="40"
+                                    stroke-dasharray="{{ (batch.progress_percentage or 0) * 2.51 }} 251.2"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-2xl font-bold">{{ "%.0f"|format(batch.progress_percentage or 0)
+                                    }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Key Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Total URLs -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Total URLs</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2">{{ batch.total_urls or 0 }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-link text-blue-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm text-gray-500">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        URLs to process
+                    </div>
+                </div>
+
+                <!-- Processed Count -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Processed</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2">{{ batch.processed_count or 0 }}</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm text-gray-500">
+                        <i class="fas fa-chart-line mr-1"></i>
+                        Successfully completed
+                    </div>
+                </div>
+
+                <!-- Success Rate -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Success Rate</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2">{{ "%.1f"|format(batch.success_rate or 0)
+                                }}%</p>
+                        </div>
+                        <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-trophy text-purple-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm text-gray-500">
+                        <i class="fas fa-percentage mr-1"></i>
+                        Quality metric
+                    </div>
+                </div>
+
+                <!-- Processing Time -->
+                <div class="metric-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Processing Time</p>
+                            <p class="text-3xl font-bold text-gray-900 mt-2">{{ batch.processing_time_display or "0m" }}
+                            </p>
+                        </div>
+                        <div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-clock text-orange-600 text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-sm text-gray-500">
+                        <i class="fas fa-stopwatch mr-1"></i>
+                        Total duration
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-wrap gap-4">
+                {% if batch.status in ['PENDING', 'QUEUED', 'PROCESSING'] %}
+                <button onclick="pauseBatch()"
+                    class="action-btn bg-yellow-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-yellow-700 transition-colors">
+                    <i class="fas fa-pause mr-2"></i>
+                    Pause Batch
+                </button>
+                {% endif %}
+
+                {% if batch.status in ['PAUSED', 'FAILED'] %}
+                <button onclick="resumeBatch()"
+                    class="action-btn bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors">
+                    <i class="fas fa-play mr-2"></i>
+                    Resume Batch
+                </button>
+                {% endif %}
+
+                <button onclick="resetBatch()"
+                    class="action-btn bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-redo mr-2"></i>
+                    Reset Batch
+                </button>
+
+                {% if batch.status == 'COMPLETED' %}
+                <button onclick="exportResults()"
+                    class="action-btn bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 transition-colors">
+                    <i class="fas fa-download mr-2"></i>
+                    Export Results
+                </button>
+                {% endif %}
+
+                <button onclick="deleteBatch()"
+                    class="action-btn bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 transition-colors">
+                    <i class="fas fa-trash mr-2"></i>
+                    Delete Batch
+                </button>
+            </div>
+
+            <!-- Progress Timeline and URL Results -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Processing Timeline -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+                        <i class="fas fa-history text-blue-500 mr-3"></i>
+                        Processing Timeline
+                    </h3>
+                    <div class="space-y-0" id="processingTimeline">
+                        {% set timeline_events = [
+                        ('Created', batch.created_at, 'blue'),
+                        ('Started', batch.started_at, 'green'),
+                        ('Completed', batch.completed_at, 'purple')
+                        ] %}
+
+                        {% for event, timestamp, color in timeline_events %}
+                        {% if timestamp %}
+                        <div class="timeline-item">
+                            <div class="timeline-dot bg-{{ color }}-500"></div>
+                            <div class="bg-gray-50 rounded-lg p-3">
+                                <div class="font-medium text-gray-900">{{ event }}</div>
+                                <div class="text-sm text-gray-500">{{ timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+
+                        {% if not batch.completed_at and batch.status in ['PROCESSING', 'QUEUED'] %}
+                        <div class="timeline-item">
+                            <div class="timeline-dot bg-yellow-500 animate-pulse"></div>
+                            <div class="bg-gray-50 rounded-lg p-3">
+                                <div class="font-medium text-gray-900">In Progress</div>
+                                <div class="text-sm text-gray-500">Currently processing...</div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- URL Results Table -->
+                <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-900 flex items-center">
+                                <i class="fas fa-list text-green-500 mr-3"></i>
+                                URL Results
+                            </h3>
+                            <div class="flex items-center space-x-2">
+                                <select id="statusFilter" onchange="filterResults()"
+                                    class="text-sm border border-gray-300 rounded-lg px-3 py-2">
+                                    <option value="">All Status</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="failed">Failed</option>
+                                    <option value="pending">Pending</option>
+                                </select>
+                                <button onclick="refreshResults()"
+                                    class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                                    <i class="fas fa-sync-alt mr-1"></i>
+                                    Refresh
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-96">
+                        <table class="w-full" id="resultsTable">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        URL</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Status</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Result</th>
+                                    <th
+                                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200" id="resultsTableBody">
+                                <tr>
+                                    <td colspan="4" class="px-6 py-8 text-center text-gray-500">
+                                        <div class="loading-spinner mx-auto mb-2"></div>
+                                        Loading results...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Batch Configuration -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-cog text-gray-500 mr-3"></i>
+                    Batch Configuration
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Batch ID</label>
+                        <div class="mt-1 text-sm text-gray-900 font-mono bg-gray-50 rounded p-2">{{ batch.batch_id }}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Processing Type</label>
+                        <div class="mt-1 text-sm text-gray-900">{{ batch.processing_type or 'Standard' }}</div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Priority</label>
+                        <div class="mt-1">
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                {{ batch.priority or 'Normal' }}
+                            </span>
+                        </div>
+                    </div>
+                    {% if batch.chunk_size %}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Chunk Size</label>
+                        <div class="mt-1 text-sm text-gray-900">{{ batch.chunk_size }} URLs per chunk</div>
+                    </div>
+                    {% endif %}
+                    {% if batch.retry_count %}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Max Retries</label>
+                        <div class="mt-1 text-sm text-gray-900">{{ batch.retry_count }}</div>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Total Chunks</label>
+                        <div class="mt-1 text-sm text-gray-900">{{ batch.total_chunks or 'N/A' }}</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // Global variables
+        const batchId = '{{ batch.batch_id }}';
+        let refreshInterval;
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function () {
+            refreshData();
+            updateLastUpdated();
+
+            // Auto-refresh every 30 seconds
+            refreshInterval = setInterval(refreshData, 30000);
+        });
+
+        // Update last updated timestamp
+        function updateLastUpdated() {
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Refresh all data
+        async function refreshData() {
+            try {
+                await refreshResults();
+                updateLastUpdated();
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                showNotification('Failed to refresh data', 'error');
+            }
+        }
+
+        // Refresh results table
+        async function refreshResults() {
+            try {
+                const statusFilter = document.getElementById('statusFilter').value;
+                const url = `/api/v1/batches/${batchId}/results${statusFilter ? `?status=${statusFilter}` : ''}`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.success) {
+                    updateResultsTable(data.data || []);
+                } else {
+                    showNotification('Failed to load results: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error refreshing results:', error);
+                showNotification('Failed to load results', 'error');
+            }
+        }
+
+        // Update results table
+        function updateResultsTable(results) {
+            const tbody = document.getElementById('resultsTableBody');
+            tbody.innerHTML = '';
+
+            if (results.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="px-6 py-8 text-center text-gray-500">
+                            No results found
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            results.forEach(result => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition-colors';
+                row.innerHTML = `
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 max-w-xs truncate">${result.url}</div>
+                        <div class="text-xs text-gray-500">${new Date(result.created_at).toLocaleString()}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(result.status)}">
+                            ${result.status.toUpperCase()}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900">
+                            ${result.analysis_result ? truncateText(result.analysis_result, 50) : 'N/A'}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-sm font-medium space-x-2">
+                        <button onclick="viewResult('${result.id}')" class="text-blue-600 hover:text-blue-900">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button onclick="retryResult('${result.id}')" class="text-yellow-600 hover:text-yellow-900">
+                            <i class="fas fa-redo"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Filter results
+        function filterResults() {
+            refreshResults();
+        }
+
+        // Get status color
+        function getStatusColor(status) {
+            const colors = {
+                'completed': 'bg-green-100 text-green-800',
+                'failed': 'bg-red-100 text-red-800',
+                'pending': 'bg-yellow-100 text-yellow-800',
+                'processing': 'bg-blue-100 text-blue-800'
+            };
+            return colors[status] || 'bg-gray-100 text-gray-800';
+        }
+
+        // Truncate text
+        function truncateText(text, maxLength) {
+            if (text.length <= maxLength) return text;
+            return text.substring(0, maxLength) + '...';
+        }
+
+        // Batch actions
+        async function pauseBatch() {
+            if (!confirm('Are you sure you want to pause this batch?')) return;
+            await performBatchAction('pause');
+        }
+
+        async function resumeBatch() {
+            if (!confirm('Are you sure you want to resume this batch?')) return;
+            await performBatchAction('resume');
+        }
+
+        async function resetBatch() {
+            if (!confirm('Are you sure you want to reset this batch? This will restart processing from the beginning.')) return;
+            await performBatchAction('reset');
+        }
+
+        async function deleteBatch() {
+            if (!confirm('Are you sure you want to delete this batch? This action cannot be undone.')) return;
+
+            try {
+                const response = await fetch(`/api/v1/batches/${batchId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('Batch deleted successfully', 'success');
+                    setTimeout(() => window.location.href = '/', 2000);
+                } else {
+                    showNotification('Delete failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Delete failed: Network error', 'error');
+            }
+        }
+
+        async function exportResults() {
+            window.open(`/api/v1/batches/${batchId}/export`, '_blank');
+        }
+
+        // Perform batch action
+        async function performBatchAction(action) {
+            try {
+                const response = await fetch(`/admin/batch/${batchId}/${action}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification(`Batch ${action} successful`, 'success');
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showNotification(`${action} failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`${action} failed: Network error`, 'error');
+            }
+        }
+
+        // View result details
+        function viewResult(resultId) {
+            // Open result details in a modal or new tab
+            showNotification('Result details feature coming soon', 'info');
+        }
+
+        // Retry specific result
+        async function retryResult(resultId) {
+            if (!confirm('Are you sure you want to retry this URL?')) return;
+
+            try {
+                const response = await fetch(`/api/v1/results/${resultId}/retry`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('URL queued for retry', 'success');
+                    refreshResults();
+                } else {
+                    showNotification('Retry failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Retry failed: Network error', 'error');
+            }
+        }
+
+        // Notification system
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification p-4 rounded-lg shadow-lg ${type === 'success' ? 'bg-green-500 text-white' :
+                type === 'error' ? 'bg-red-500 text-white' :
+                    type === 'warning' ? 'bg-yellow-500 text-white' :
+                        'bg-blue-500 text-white'
+                }`;
+
+            notification.innerHTML = `
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 100);
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+
+        // Mobile menu toggle
+        const menuButton = document.querySelector('.lg\\:hidden button');
+        const sidebar = document.querySelector('.sidebar-nav');
+
+        if (menuButton) {
+            menuButton.addEventListener('click', () => {
+                sidebar.classList.toggle('-translate-x-full');
+            });
+        }
+    </script>
+</body>
+
+</html>

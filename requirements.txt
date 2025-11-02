@@ -1,0 +1,62 @@
+# Enterprise Image Processing System Requirements
+
+# Core dependencies (install first)
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Google AI dependency (critical)
+google-generativeai>=0.3.0
+
+# Enterprise Database (PostgreSQL)
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0  # PostgreSQL adapter
+alembic>=1.12.0  # Database migrations
+
+# Redis for job queuing
+redis>=4.5.0
+hiredis>=2.2.0  # Fast Redis parser
+
+# Web framework and API
+flask>=2.3.0
+werkzeug>=2.3.0
+
+# Data processing and export
+pandas>=2.0.0
+openpyxl>=3.1.0  # Excel export support
+xlsxwriter>=3.1.0  # Alternative Excel writer
+
+# HTTP and async operations
+aiohttp>=3.8.0
+aiofiles>=23.0.0
+requests>=2.31.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Background job processing
+celery>=5.3.0  # Optional alternative to custom job queue
+kombu>=5.3.0  # Message transport
+
+# Monitoring and logging
+psutil>=5.9.0
+tqdm>=4.65.0
+rich>=13.0.0
+
+# Configuration and utilities
+python-dotenv>=1.0.0
+click>=8.1.0
+PyYAML>=6.0.0
+
+# Development and testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.7.0
+isort>=5.12.0
+
+# Enterprise monitoring (optional)
+prometheus-client>=0.17.0
+statsd>=4.0.0
+
+# Security and validation
+cryptography>=41.0.0
+marshmallow>=3.20.0
