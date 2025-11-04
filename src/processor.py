@@ -80,7 +80,10 @@ class ImageProcessor:
 
     async def process_batch(self, urls: List[str]) -> List[ProcessingResult]:
         """Process a batch of URLs"""
-        if not self.session:
+        # Ensure session is initialized and valid
+        if not self.session or self.session.closed:
+            if self.session and self.session.closed:
+                self.session = None
             self.start_processing()
 
         # Create tasks for concurrent processing
@@ -144,11 +147,21 @@ class ImageProcessor:
     async def _download_image(self, url: str) -> Optional[bytes]:
         """Download image from URL"""
         try:
+            logger.debug(f"Downloading image from {url}")
+            if not self.session or self.session.closed:
+                logger.warning(
+                    f"Session is closed or None when downloading {url}")
+                return None
+
             async with self.session.get(url) as response:
+                logger.debug(f"Response status for {url}: {response.status}")
                 if response.status == 200:
                     content_type = response.headers.get('content-type', '')
+                    logger.debug(f"Content-type for {url}: {content_type}")
                     if 'image' in content_type.lower():
                         image_data = await response.read()
+                        logger.debug(
+                            f"Downloaded {len(image_data)} bytes for {url}")
 
                         # Resize image if too large
                         return self._resize_image_if_needed(image_data)
