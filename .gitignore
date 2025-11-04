@@ -157,6 +157,7 @@ typescript
 .env
 .env.local
 .env.*.local
+.yml
 
 # Test data files
 test_*.csv
