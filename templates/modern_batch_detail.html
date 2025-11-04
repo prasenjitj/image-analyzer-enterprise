@@ -22,10 +22,10 @@
         }
 
         .glass-card {
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
 
         .admin-header-card {
@@ -294,11 +294,11 @@
         <!-- Dashboard Content -->
         <main class="p-6 space-y-6">
             <!-- Batch Header -->
-            <div class="glass-card rounded-2xl p-6 detail-gradient text-white">
+            <div class="glass-card rounded-2xl p-6 detail-gradient text-gray-900">
                 <div class="flex items-center justify-between">
                     <div>
                         <h1 class="text-3xl font-bold mb-2">{{ batch.batch_name }}</h1>
-                        <p class="text-purple-100 text-lg mb-4">{{ batch.description or "Batch processing details and
+                        <p class="text-gray-600 text-lg mb-4">{{ batch.description or "Batch processing details and
                             analytics" }}</p>
                         <div class="flex items-center space-x-6">
                             <div class="flex items-center">
@@ -310,9 +310,10 @@
                                 Created: {{ batch.created_at.strftime('%Y-%m-%d %H:%M') if batch.created_at else
                                 'Unknown' }}
                             </div>
-                            <div class="text-sm">
+                            <div class="text-sm cursor-pointer" title="{{ batch.batch_id }}" onclick="copyBatchId()">
                                 <i class="fas fa-user mr-1"></i>
-                                ID: {{ batch.batch_id[:8] }}...
+                                ID: {{ batch.batch_id[:12] }}...
+                                <i class="fas fa-copy ml-1 text-xs opacity-50"></i>
                             </div>
                         </div>
                     </div>
@@ -972,8 +973,15 @@
             });
         }
 
-        // Initialize on DOM load
-        document.addEventListener('DOMContentLoaded', initSidebarToggle);
+        // Copy batch ID to clipboard
+        async function copyBatchId() {
+            try {
+                await navigator.clipboard.writeText('{{ batch.batch_id }}');
+                showNotification('Batch ID copied to clipboard!', 'success');
+            } catch (error) {
+                showNotification('Failed to copy batch ID', 'error');
+            }
+        }
     </script>
 </body>
 
