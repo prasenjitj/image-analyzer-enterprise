@@ -198,6 +198,100 @@
         .notification.show {
             transform: translateX(0);
         }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .processing-active {
+            position: relative;
+        }
+
+        .processing-active::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.1), transparent);
+            animation: processingGlow 2s ease-in-out infinite;
+            pointer-events: none;
+            border-radius: 1rem;
+        }
+
+        @keyframes processingGlow {
+
+            0%,
+            100% {
+                opacity: 0;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .metric-update {
+            animation: metricPulse 2s ease-out;
+        }
+
+        @keyframes metricPulse {
+            0% {
+                transform: scale(1);
+                color: #3b82f6;
+            }
+
+            50% {
+                transform: scale(1.05);
+                color: #1d4ed8;
+            }
+
+            100% {
+                transform: scale(1);
+                color: inherit;
+            }
+        }
+
+        .result-fade-in {
+            animation: fadeInUp 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .live-indicator {
+            animation: livePulse 2s ease-in-out infinite;
+        }
+
+        @keyframes livePulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.6;
+            }
+        }
     </style>
 </head>
 
@@ -653,29 +747,235 @@
         // Global variables
         const batchId = '{{ batch.batch_id }}';
         let refreshInterval;
+        let currentBatchStatus = '{{ batch.status }}';
+        let lastResultCount = 0;
+        let pollingInterval = 30000; // Start with 30 seconds
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', function () {
             refreshData();
             updateLastUpdated();
+            initAdaptivePolling();
 
-            // Auto-refresh every 30 seconds
-            refreshInterval = setInterval(refreshData, 30000);
+            // Add processing animations for active batches
+            if (currentBatchStatus === 'processing' || currentBatchStatus === 'queued') {
+                addProcessingAnimations();
+            }
         });
+
+        // Adaptive polling based on batch status and progress
+        function initAdaptivePolling() {
+            updatePollingInterval();
+            refreshInterval = setInterval(refreshData, pollingInterval);
+        }
+
+        // Update polling interval based on batch status and progress
+        function updatePollingInterval() {
+            const progress = parseFloat(document.querySelector('.progress-circle')?.getAttribute('stroke-dasharray')?.split(' ')[0] || 0) / 2.51;
+
+            if (currentBatchStatus === 'processing' || currentBatchStatus === 'queued') {
+                // Active processing - faster updates
+                if (progress < 10) {
+                    pollingInterval = 3000; // 3 seconds at start
+                } else if (progress < 50) {
+                    pollingInterval = 5000; // 5 seconds mid-processing
+                } else if (progress < 90) {
+                    pollingInterval = 8000; // 8 seconds later
+                } else {
+                    pollingInterval = 10000; // 10 seconds near completion
+                }
+            } else if (currentBatchStatus === 'pending' || currentBatchStatus === 'paused') {
+                pollingInterval = 15000; // 15 seconds for inactive batches
+            } else {
+                pollingInterval = 30000; // 30 seconds for completed/failed batches
+            }
+
+            // Update the refresh button with current interval
+            updateRefreshButton();
+        }
+
+        // Update refresh button to show current polling status
+        function updateRefreshButton() {
+            const refreshBtn = document.querySelector('button[onclick="refreshData()"]');
+            if (refreshBtn) {
+                const nextRefresh = Math.ceil(pollingInterval / 1000);
+                refreshBtn.title = `Auto-refresh every ${nextRefresh}s (Click to refresh now)`;
+                refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+            }
+        }
+
+        // Add processing animations for active batches
+        function addProcessingAnimations() {
+            // Add pulsing animation to progress ring
+            const progressRing = document.querySelector('.progress-ring');
+            if (progressRing) {
+                progressRing.classList.add('animate-pulse');
+            }
+
+            // Add processing indicators to metric cards
+            const processedCard = document.querySelector('.metric-card:nth-child(2)');
+            if (processedCard) {
+                processedCard.classList.add('processing-active');
+            }
+
+            // Add live update indicator
+            addLiveUpdateIndicator();
+        }
+
+        // Add live update indicator
+        function addLiveUpdateIndicator() {
+            const header = document.querySelector('header');
+            if (header) {
+                const indicator = document.createElement('div');
+                indicator.id = 'liveIndicator';
+                indicator.className = 'flex items-center text-xs text-green-600 ml-4 live-indicator';
+                indicator.innerHTML = `
+                    <div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                    Live Updates Active
+                `;
+                header.querySelector('.flex.items-center.justify-between').appendChild(indicator);
+            }
+        }
 
         // Update last updated timestamp
         function updateLastUpdated() {
-            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+            const now = new Date();
+            document.getElementById('lastUpdated').textContent = now.toLocaleTimeString();
+
+            // Add visual feedback for update
+            const lastUpdatedElement = document.getElementById('lastUpdated').parentElement;
+            lastUpdatedElement.classList.add('text-blue-600');
+            setTimeout(() => {
+                lastUpdatedElement.classList.remove('text-blue-600');
+            }, 2000);
         }
 
         // Refresh all data
         async function refreshData() {
             try {
-                await refreshResults();
+                const [resultsData, statusData] = await Promise.all([
+                    refreshResults(),
+                    refreshBatchStatus()
+                ]);
+
                 updateLastUpdated();
+                updatePollingInterval();
+
+                // Check if batch status changed
+                if (statusData && statusData.status !== currentBatchStatus) {
+                    handleStatusChange(statusData.status, currentBatchStatus);
+                    currentBatchStatus = statusData.status;
+                }
+
             } catch (error) {
                 console.error('Error refreshing data:', error);
                 showNotification('Failed to refresh data', 'error');
+            }
+        }
+
+        // Refresh batch status
+        async function refreshBatchStatus() {
+            try {
+                const response = await fetch(`/api/v1/batches/${batchId}/status`);
+                const data = await response.json();
+
+                if (data.success) {
+                    updateBatchStatus(data.data);
+                    return data.data;
+                }
+            } catch (error) {
+                console.error('Error refreshing batch status:', error);
+            }
+            return null;
+        }
+
+        // Update batch status display
+        function updateBatchStatus(statusData) {
+            // Update progress ring
+            const progressPercentage = statusData.progress?.progress_percentage || 0;
+            const progressCircle = document.querySelector('.progress-circle');
+            const progressText = document.querySelector('.progress-ring + div span');
+
+            if (progressCircle) {
+                const circumference = 2 * Math.PI * 40;
+                const dashArray = (progressPercentage / 100) * circumference;
+                progressCircle.setAttribute('stroke-dasharray', `${dashArray} ${circumference}`);
+            }
+
+            if (progressText) {
+                progressText.textContent = `${Math.round(progressPercentage)}%`;
+            }
+
+            // Update status indicator
+            const statusIndicator = document.querySelector('.status-indicator');
+            const statusText = statusIndicator.nextElementSibling;
+
+            if (statusIndicator && statusText) {
+                statusIndicator.className = `status-indicator status-${statusData.status.toLowerCase()}`;
+                statusText.textContent = statusData.status.toUpperCase();
+            }
+
+            // Update metrics
+            updateMetrics(statusData);
+        }
+
+        // Update metrics with live data
+        function updateMetrics(statusData) {
+            const metrics = {
+                'Total URLs': statusData.batch_info?.total_urls || 0,
+                'Processed': statusData.batch_info?.processed_count || 0,
+                'Success Rate': `${(statusData.performance?.success_rate_percentage || 0).toFixed(1)}%`,
+                'Processing Time': `${(statusData.timing?.elapsed_time_minutes || 0).toFixed(1)} minutes`
+            };
+
+            // Update each metric card
+            Object.entries(metrics).forEach(([label, value]) => {
+                const card = Array.from(document.querySelectorAll('.metric-card')).find(card =>
+                    card.textContent.includes(label)
+                );
+                if (card) {
+                    const valueElement = card.querySelector('p.text-3xl');
+                    if (valueElement && valueElement.textContent !== value.toString()) {
+                        valueElement.classList.add('metric-update');
+                        valueElement.textContent = value;
+                        setTimeout(() => {
+                            valueElement.classList.remove('metric-update');
+                        }, 2000);
+                    }
+                }
+            });
+        }
+
+        // Handle batch status changes
+        function handleStatusChange(newStatus, oldStatus) {
+            if (newStatus === 'completed' && oldStatus !== 'completed') {
+                showNotification('Batch processing completed!', 'success');
+                removeProcessingAnimations();
+            } else if (newStatus === 'failed' && oldStatus !== 'failed') {
+                showNotification('Batch processing failed', 'error');
+                removeProcessingAnimations();
+            } else if ((newStatus === 'processing' || newStatus === 'queued') &&
+                (oldStatus === 'pending' || oldStatus === 'paused')) {
+                showNotification('Batch processing started', 'info');
+                addProcessingAnimations();
+            }
+        }
+
+        // Remove processing animations
+        function removeProcessingAnimations() {
+            const progressRing = document.querySelector('.progress-ring');
+            if (progressRing) {
+                progressRing.classList.remove('animate-pulse');
+            }
+
+            const processedCard = document.querySelector('.metric-card:nth-child(2)');
+            if (processedCard) {
+                processedCard.classList.remove('processing-active');
+            }
+
+            const liveIndicator = document.getElementById('liveIndicator');
+            if (liveIndicator) {
+                liveIndicator.remove();
             }
         }
 
@@ -688,7 +988,17 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    updateResultsTable(data.data || []);
+                    const results = data.data || [];
+                    updateResultsTable(results);
+
+                    // Show notification for new results
+                    if (results.length > lastResultCount && lastResultCount > 0) {
+                        const newResults = results.length - lastResultCount;
+                        showNotification(`${newResults} new result${newResults > 1 ? 's' : ''} available`, 'info');
+                    }
+                    lastResultCount = results.length;
+
+                    return results;
                 } else {
                     showNotification('Failed to load results: ' + data.error, 'error');
                 }
@@ -696,36 +1006,59 @@
                 console.error('Error refreshing results:', error);
                 showNotification('Failed to load results', 'error');
             }
+            return [];
         }
 
-        // Update results table
+        // Update results table with animations
         function updateResultsTable(results) {
             const tbody = document.getElementById('resultsTableBody');
-            tbody.innerHTML = '';
 
             if (!results || results.length === 0) {
+                const isProcessing = currentBatchStatus === 'processing' || currentBatchStatus === 'queued';
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="5" class="px-6 py-8 text-center text-gray-500">
-                            No results found
+                            ${isProcessing ? `
+                                <div class="flex flex-col items-center">
+                                    <div class="loading-spinner mb-2"></div>
+                                    <div class="text-sm">Processing URLs...</div>
+                                    <div class="text-xs text-gray-400 mt-1">Results will appear here as they complete</div>
+                                </div>
+                            ` : `
+                                <div class="text-gray-400">
+                                    <i class="fas fa-inbox text-2xl mb-2"></i>
+                                    <div>No results found</div>
+                                </div>
+                            `}
                         </td>
                     </tr>
                 `;
                 return;
             }
 
-            results.forEach(result => {
+            // Sort results by creation time (newest first)
+            results.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+            // Clear existing rows
+            tbody.innerHTML = '';
+
+            results.forEach((result, index) => {
                 const row = document.createElement('tr');
                 row.className = 'hover:bg-gray-50 transition-colors';
 
+                // Add fade-in animation for new results
+                if (index < 5) { // Animate first 5 results
+                    row.className += ' result-fade-in';
+                }
+
                 // Determine success status
                 const statusBadge = result.success
-                    ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">SUCCESS</span>'
-                    : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">FAILED</span>';
+                    ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>SUCCESS</span>'
+                    : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800"><i class="fas fa-times mr-1"></i>FAILED</span>';
 
                 row.innerHTML = `
                     <td class="px-6 py-4">
-                        <div class="text-sm text-gray-900 max-w-xs truncate">${result.url || 'N/A'}</div>
+                        <div class="text-sm text-gray-900 max-w-xs truncate" title="${result.url || 'N/A'}">${result.url || 'N/A'}</div>
                     </td>
                     <td class="px-6 py-4">
                         ${statusBadge}
@@ -750,6 +1083,7 @@
 
         // Filter results
         function filterResults() {
+            lastResultCount = 0; // Reset counter when filtering
             refreshResults();
         }
 
