@@ -70,7 +70,7 @@ class EnterpriseConfig(BaseSettings):
     max_upload_size: int = Field(104857600, env="MAX_UPLOAD_SIZE")  # 100MB
 
     # Cache Configuration
-    cache_db_path: str = Field("./temp/cache.db", env="CACHE_DB_PATH")
+    cache_db_path: str = Field("./temp/analysis_cache.db", env="CACHE_DB_PATH")
 
     # Performance Tuning
     image_max_size: int = Field(2048, env="IMAGE_MAX_SIZE")
