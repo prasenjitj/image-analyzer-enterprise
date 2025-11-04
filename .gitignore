@@ -144,3 +144,25 @@ exports/
 # Temporary files
 *.tmp
 *.temp
+
+# Backup files
+*.bak
+*.backup
+
+# Terminal session recordings
+typescript
+*.typescript
+
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# Test data files
+test_*.csv
+test_*.json
+
+# Documentation reports (development artifacts)
+*_REPORT.md
+CODE_REVIEW_REPORT.md
+DOCUMENTATION_REVIEW_REPORT.md
