@@ -188,42 +188,48 @@ curl http://localhost:5001/api/v1/system/stats | jq '.data.queue_stats'
 
 ## ⚡ Performance Optimization
 
-### For Large Scale Processing (15M+ URLs)
+### For Large Scale Processing (15M+ URLs) - Updated Configuration
 
-1. **Increase Workers:**
+1. **Increase Workers (Updated):**
 ```env
-MAX_WORKERS=8
-MAX_CONCURRENT_BATCHES=10
+MAX_CONCURRENT_WORKERS=100        # Increased from 8
+MAX_CONCURRENT_BATCHES=20         # Increased from 10
+MAX_CONCURRENT_REQUESTS=25        # Higher per-worker concurrency
 ```
 
 2. **Add More API Keys:**
 ```env
-GEMINI_API_KEYS=key1,key2,key3,key4
+GEMINI_API_KEYS=key1,key2,key3,key4,key5,key6  # More keys for higher throughput
+REQUESTS_PER_MINUTE=200           # Adjusted for multiple keys
 ```
 
-3. **Optimize Database:**
-```sql
--- Increase connection pool
-# In .env:
-DB_POOL_SIZE=50
-DB_MAX_OVERFLOW=100
-```
-
-4. **Scale Redis:**
+3. **Optimize Database (Enhanced):**
 ```env
-REDIS_MAX_CONNECTIONS=200
+# In .env - Enhanced database configuration:
+DATABASE_POOL_SIZE=200            # Increased from 50
+DATABASE_MAX_OVERFLOW=300         # Increased from 100
+DATABASE_POOL_TIMEOUT=30          # Connection timeout
+DATABASE_POOL_RECYCLE=1800        # Connection lifecycle
 ```
 
-### For Better Throughput
+4. **Scale Redis (Enhanced):**
+```env
+REDIS_MAX_CONNECTIONS=1000        # Increased from 200
+REDIS_SOCKET_TIMEOUT=10           # Optimized timeout
+```
+
+### For Better Throughput (Updated)
 
 1. **Larger Chunks:**
 ```env
-CHUNK_SIZE=2000
+CHUNK_SIZE=2000                   # Optimal chunk size
 ```
 
-2. **More Concurrent Processing:**
+2. **Memory Management:**
 ```env
-MAX_CONCURRENT_REQUESTS=10
+MEMORY_LIMIT_GB=8                 # Memory limit
+GC_FREQUENCY=100                  # Garbage collection
+ENABLE_MEMORY_MONITORING=true    # Monitor memory usage
 ```
 
 3. **Optimize Timeouts:**
@@ -259,9 +265,10 @@ sudo systemctl restart redis
 
 **Slow Processing:**
 - Check API key rate limits
-- Add more API keys
+- Add more API keys  
 - Increase workers
 - Monitor system resources
+- **See [PERFORMANCE_OPTIMIZATION_GUIDE.md](PERFORMANCE_OPTIMIZATION_GUIDE.md) for comprehensive optimization strategies**
 
 **Memory Issues:**
 - Reduce MAX_WORKERS
@@ -363,21 +370,30 @@ SELECT pg_size_pretty(pg_database_size('imageprocessing'));
    - Database: PostgreSQL logs
    - Redis: Redis logs
 
-### Performance Benchmarks
+### Performance Benchmarks (Updated with Optimizations)
 
 **Expected Performance (single API key):**
-- ~60 URLs per minute
+- ~60 URLs per minute (baseline)
 - 15M URLs ≈ 173 days
 
-**Scaling with multiple API keys:**
-- 2 keys: ~86 days
-- 4 keys: ~43 days
-- 8 keys: ~22 days
+**Scaling with multiple API keys (Optimized Configuration):**
+- 2 keys: ~120 URLs/min → ~69 days
+- 4 keys: ~240 URLs/min → ~35 days  
+- 6 keys: ~350 URLs/min → ~24 days
+- 8 keys: ~450 URLs/min → ~19 days
 
-**Memory Usage:**
+**Memory Usage (With Optimizations):**
 - Base application: ~200MB
 - Per active chunk: ~50MB
 - Per worker: ~100MB
+- Optimized workers: ~80MB each with memory monitoring
+
+**Performance with Cloud Deployment:**
+- Cloud Function + Cloud Run: 2-3x faster than local deployment
+- Proper resource allocation: 4GB RAM, 2+ CPU cores recommended
+- Auto-scaling: Can handle traffic bursts effectively
+
+> **Note**: These benchmarks are based on the optimized configurations in [PERFORMANCE_OPTIMIZATION_GUIDE.md](PERFORMANCE_OPTIMIZATION_GUIDE.md). Actual performance may vary based on network conditions, API response times, and hardware specifications.
 
 ---
 

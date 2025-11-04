@@ -6,9 +6,9 @@ This script handles the imports properly and starts the Flask server.
 import sys
 import os
 
-# Add the src directory to Python path
-src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
-sys.path.insert(0, src_dir)
+# Add the parent directory to Python path (where src is located)
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
 if __name__ == '__main__':
     # Import and run the enterprise app

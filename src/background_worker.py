@@ -11,19 +11,17 @@ import signal
 import sys
 import hashlib
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import multiprocessing as mp
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 
-from enterprise_config import config
-from database_models import (
+from .enterprise_config import config
+from .database_models import (
     ProcessingBatch, ProcessingChunk, URLAnalysisResult,
     BatchStatus, ChunkStatus, db_manager
 )
-from job_queue import job_queue, Job
-from processor import ImageProcessor
-from cache import get_cache
+from .job_queue import job_queue, Job
+from .processor import ImageProcessor
+from .cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +131,8 @@ class ChunkProcessor:
             self._update_batch_progress(batch_id)
 
             logger.info(
-                f"Chunk {chunk_id} completed: {successful_count} successful, {failed_count} failed, {processing_time:.1f}s")
+                f"Chunk {chunk_id} completed: {successful_count} successful, "
+                f"{failed_count} failed, {processing_time:.1f}s")
 
             return {
                 'chunk_id': chunk_id,
@@ -189,6 +188,17 @@ class ChunkProcessor:
     def _store_chunk_results(self, batch_id: str, chunk_id: str, results: List[Any]):
         """Store processing results in database"""
         with db_manager.get_session() as session:
+            # First validate that the batch exists
+            batch = session.query(ProcessingBatch).filter_by(
+                batch_id=batch_id).first()
+            if not batch:
+                logger.error(
+                    f"Cannot store results: batch {batch_id} not found in database")
+                logger.error(
+                    f"This indicates a race condition or batch cleanup issue")
+                # Don't try to store results for non-existent batch
+                return
+
             for result in results:
                 try:
                     # Generate URL hash for database constraint
@@ -500,13 +510,7 @@ async def run_worker_process(worker_id: str = None, num_workers: int = 1):
 
     logger.info(f"Starting standalone worker process: {worker_id}")
 
-    # Setup signal handlers
-    def signal_handler(signum, frame):
-        logger.info(f"Worker {worker_id} received signal {signum}")
-        worker_manager.should_stop = True
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # Note: Signal handlers are now set up in the main thread by the caller
 
     try:
         # Initialize worker manager

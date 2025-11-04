@@ -19,6 +19,7 @@ hiredis>=2.2.0  # Fast Redis parser
 # Web framework and API
 flask>=2.3.0
 werkzeug>=2.3.0
+gunicorn>=21.0.0  # Production WSGI server
 
 # Data processing and export
 pandas>=2.0.0

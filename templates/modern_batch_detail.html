@@ -443,6 +443,14 @@
                 </button>
                 {% endif %}
 
+                {% if batch.status not in ['PROCESSING', 'COMPLETED'] %}
+                <button onclick="forceStartBatch()"
+                    class="action-btn bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 transition-colors">
+                    <i class="fas fa-rocket mr-2"></i>
+                    Force Start
+                </button>
+                {% endif %}
+
                 <button onclick="resetBatch()"
                     class="action-btn bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors">
                     <i class="fas fa-redo mr-2"></i>
@@ -811,6 +819,11 @@
         async function resetBatch() {
             if (!confirm('Are you sure you want to reset this batch? This will restart processing from the beginning.')) return;
             await performBatchAction('reset');
+        }
+
+        async function forceStartBatch() {
+            if (!confirm('Are you sure you want to force start this batch? This will start processing regardless of current status.')) return;
+            await performBatchAction('start');
         }
 
         async function deleteBatch() {

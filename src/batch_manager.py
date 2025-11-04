@@ -8,16 +8,13 @@ import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
-import tempfile
-import os
 
-from enterprise_config import config
-from database_models import (
+from .enterprise_config import config
+from .database_models import (
     ProcessingBatch, ProcessingChunk, URLAnalysisResult,
     BatchStatus, ChunkStatus, db_manager
 )
-from job_queue import job_queue, enqueue_chunk_processing, enqueue_batch_finalization
+from .job_queue import job_queue, enqueue_chunk_processing
 
 logger = logging.getLogger(__name__)
 
@@ -282,8 +279,6 @@ class BatchManager:
 
     def get_batch_status(self, batch_id: str) -> Dict[str, Any]:
         """Get comprehensive status of a batch"""
-        from enterprise_config import logger
-
         try:
             logger.info(f"Getting batch status for batch_id: {batch_id}")
 
@@ -442,11 +437,14 @@ class BatchManager:
                 raise ValueError(
                     f"Cannot delete active batch {batch_id}. Use force=True to override.")
 
-            # Delete associated chunks and results
-            session.query(ProcessingChunk).filter_by(
-                batch_id=batch_id).delete()
+            # Delete associated data in correct order to avoid foreign key violations
+            # 1. Delete URL analysis results first (references chunks)
             session.query(URLAnalysisResult).filter_by(
                 batch_id=batch_id).delete()
+            # 2. Delete chunks (referenced by results)
+            session.query(ProcessingChunk).filter_by(
+                batch_id=batch_id).delete()
+            # 3. Delete the batch itself
             session.delete(batch)
             session.commit()
 
@@ -1078,7 +1076,7 @@ class BatchManager:
             batch = self._validate_batch_exists(session, batch_id)
 
             # Only allow reset if batch is stuck
-            if not force and batch.status not in [BatchStatus.QUEUED, BatchStatus.PROCESSING]:
+            if not force and batch.status not in [BatchStatus.QUEUED, BatchStatus.PROCESSING, BatchStatus.PENDING]:
                 return {
                     'success': False,
                     'error': f"Batch is in {batch.status} status. Use force=True to reset anyway."
@@ -1143,8 +1141,8 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
             f"Processing chunk {chunk_id} for batch {batch_id} with {len(urls)} URLs")
 
         # Import processor here to avoid circular imports
-        from processor import image_processor
-        from cache import get_cache
+        from .processor import image_processor
+        from .cache import get_cache
         import asyncio
 
         # Get cache instance
@@ -1184,7 +1182,7 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
         for url in urls:
             if url in cached_results:
                 # Create result object from cached data
-                from processor import ProcessingResult
+                from .processor import ProcessingResult
                 cached_result = ProcessingResult(
                     url=url,
                     success=True,
@@ -1437,7 +1435,6 @@ def _update_batch_progress(batch_id: str):
 
     def get_queue_status(self) -> Dict[str, Any]:
         """Get comprehensive queue status including stuck jobs"""
-        from job_queue import job_queue
         import redis
         import json
 
@@ -1470,7 +1467,7 @@ def _update_batch_progress(batch_id: str):
                             'batch_id': job_info.get('payload', {}).get('batch_id'),
                             'chunk_id': job_info.get('payload', {}).get('chunk_id')
                         })
-                except:
+                except Exception:
                     continue
 
         return {
@@ -1509,7 +1506,6 @@ def _update_batch_progress(batch_id: str):
     def cleanup_stuck_jobs(self, job_types_to_remove: List[str] = None,
                            max_age_hours: int = 24) -> Dict[str, Any]:
         """Clean up stuck jobs in the queue"""
-        from job_queue import job_queue
         import redis
         import json
         from datetime import datetime, timedelta
@@ -1549,7 +1545,7 @@ def _update_batch_progress(batch_id: str):
                                 created_at_str.replace('Z', '+00:00'))
                             if created_at < cutoff_time and job_info.get('status') in ['retrying', 'processing']:
                                 should_remove = True
-                        except:
+                        except Exception:
                             pass
 
                     if should_remove:
@@ -1560,7 +1556,7 @@ def _update_batch_progress(batch_id: str):
                             'status': job_info.get('status', 'unknown')
                         })
 
-                except:
+                except Exception:
                     continue
 
         # Remove the jobs
@@ -1677,7 +1673,7 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
             # Get URLs for this chunk
-            from database_models import URLToProcess, URLAnalysisResult
+            from .database_models import URLToProcess, URLAnalysisResult
             urls = session.query(URLToProcess).filter_by(
                 batch_id=batch_id,
                 chunk_number=chunk.chunk_number

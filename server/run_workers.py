@@ -7,14 +7,13 @@ import sys
 import os
 import argparse
 
-# Add the src directory to Python path
-src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
-sys.path.insert(0, src_dir)
+# Add the src directory to Python path (go up one level from server/ to project root, then to src/)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)  # Go up to project root
+src_dir = os.path.join(parent_dir, 'src')
+sys.path.insert(0, parent_dir)  # Add project root to path
 
 if __name__ == '__main__':
-    # Change to src directory
-    os.chdir(src_dir)
-
     # Parse arguments
     parser = argparse.ArgumentParser(description="Background Worker Process")
     parser.add_argument("--workers", type=int, default=10,
@@ -25,7 +24,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Import and run the background worker
-    from background_worker import run_worker_process
+    from src.background_worker import run_worker_process
     import asyncio
     import logging
 

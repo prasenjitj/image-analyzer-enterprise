@@ -10,8 +10,8 @@ from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 import tempfile
 
-from database_models import URLAnalysisResult, ProcessingBatch, db_manager
-from enterprise_config import config
+from .database_models import URLAnalysisResult, ProcessingBatch, db_manager
+from .enterprise_config import config
 
 logger = logging.getLogger(__name__)
 

@@ -22,12 +22,28 @@ REDIS_URL=redis://localhost:6379/0
 REDIS_PASSWORD=your_redis_password  # Optional
 REDIS_DB=0
 
-# Processing Configuration
-CHUNK_SIZE=1000                    # URLs per chunk
-MAX_CONCURRENT_BATCHES=5           # Maximum active batches
-MAX_CONCURRENT_CHUNKS=3            # Chunks per batch
-MAX_CONCURRENT_WORKERS=50          # Background workers
-REQUESTS_PER_MINUTE=55             # Rate limit per API key
+# Processing Configuration (Performance Optimized)
+CHUNK_SIZE=2000                    # URLs per chunk (increased from 1000)
+MAX_CONCURRENT_BATCHES=20          # Maximum active batches (increased from 5)
+MAX_CONCURRENT_CHUNKS=10           # Chunks per batch (increased from 3)
+MAX_CONCURRENT_WORKERS=100         # Background workers (increased from 50)
+MAX_CONCURRENT_REQUESTS=25         # Concurrent requests per worker (new)
+REQUESTS_PER_MINUTE=200            # Rate limit with multiple API keys (increased from 55)
+
+# Database Performance Configuration (New)
+DATABASE_POOL_SIZE=200             # Connection pool size
+DATABASE_MAX_OVERFLOW=300          # Max overflow connections
+DATABASE_POOL_TIMEOUT=30           # Connection timeout
+DATABASE_POOL_RECYCLE=1800         # Connection recycle time
+
+# Redis Performance Configuration (New)
+REDIS_MAX_CONNECTIONS=1000         # Max Redis connections
+REDIS_SOCKET_TIMEOUT=10            # Socket timeout
+
+# Memory and Performance (New)
+MEMORY_LIMIT_GB=8                  # Memory limit for workers
+GC_FREQUENCY=100                   # Garbage collection frequency
+ENABLE_MEMORY_MONITORING=true     # Enable memory monitoring
 
 # Application Configuration
 SECRET_KEY=your_secret_key_here
@@ -461,22 +477,37 @@ tcp-keepalive 300
 timeout 0
 ```
 
-### Application Optimization
+### Application Optimization (Updated for High Performance)
 
 Environment variables for production:
 ```bash
-# Increase worker counts
-MAX_CONCURRENT_WORKERS=100
-MAX_CONCURRENT_BATCHES=10
-CHUNK_SIZE=2000
+# High-performance worker configuration
+MAX_CONCURRENT_WORKERS=100         # Increased for better throughput
+MAX_CONCURRENT_BATCHES=20          # Support more simultaneous batches
+MAX_CONCURRENT_REQUESTS=25         # Higher per-worker concurrency
+CHUNK_SIZE=2000                    # Larger chunks for efficiency
 
-# Optimize database connections
-DATABASE_POOL_SIZE=50
-DATABASE_MAX_OVERFLOW=100
+# Optimized database connections
+DATABASE_POOL_SIZE=200             # Increased pool size
+DATABASE_MAX_OVERFLOW=300          # Higher overflow capacity
+DATABASE_POOL_TIMEOUT=30           # Connection timeout
+DATABASE_POOL_RECYCLE=1800         # Connection lifecycle management
 
-# Rate limiting
-REQUESTS_PER_MINUTE=100  # If using multiple API keys
+# Redis optimization
+REDIS_MAX_CONNECTIONS=1000         # Support high concurrency
+REDIS_SOCKET_TIMEOUT=10            # Optimized timeout
+
+# Rate limiting with multiple API keys
+REQUESTS_PER_MINUTE=200            # Higher throughput with multiple keys
+GEMINI_API_KEYS=key1,key2,key3,key4  # Use multiple API keys
+
+# Memory management
+MEMORY_LIMIT_GB=8                  # Memory limit for workers
+GC_FREQUENCY=100                   # Garbage collection frequency
+ENABLE_MEMORY_MONITORING=true     # Monitor memory usage
 ```
+
+> **Note**: For comprehensive performance optimization strategies, configuration tuning, and advanced deployment patterns, see the [Performance Optimization Guide](PERFORMANCE_OPTIMIZATION_GUIDE.md).
 
 ## Security Considerations
 

@@ -19,7 +19,7 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-from enterprise_config import config
+from .enterprise_config import config
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +89,11 @@ class JobQueue:
         self.failed_set = f"{self.queue_name}:failed"
         self.job_data_prefix = f"{self.queue_name}:job:"
 
-        if not REDIS_AVAILABLE:
+        # Always initialize in-memory fallback (used when Redis is unavailable)
+        self._jobs = {}
+
+        if not REDIS_AVAILABLE or self.redis_client is None:
             logger.warning("Redis not available, using in-memory fallback")
-            self._jobs = {}  # In-memory fallback
 
     def _create_redis_client(self) -> Optional[Redis]:
         """Create Redis client"""
@@ -307,6 +309,11 @@ class JobQueue:
                 del self._jobs[job_id]
 
         logger.info(f"Cleaned up jobs older than {days} days")
+
+    def stop(self):
+        """Stop the job queue (placeholder for graceful shutdown)"""
+        logger.info("Job queue shutdown requested")
+        # In a more complex implementation, this would stop workers gracefully
 
 
 class BackgroundWorker:

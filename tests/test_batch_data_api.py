@@ -11,7 +11,8 @@ import requests
 from datetime import datetime
 from urllib.parse import urlencode
 
-BASE_URL = "http://localhost:5001"
+# BASE_URL = "http://localhost:5001"
+BASE_URL = "https://image-analyzer-mzhpbbuvma-uc.a.run.app/"
 
 
 @pytest.fixture

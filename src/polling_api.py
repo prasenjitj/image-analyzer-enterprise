@@ -6,14 +6,26 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from batch_manager import batch_manager
-from database_models import BatchStatus
-from enterprise_config import config
+from src.batch_manager import batch_manager
+from src.database_models import BatchStatus
+from src.enterprise_config import config
 
 logger = logging.getLogger(__name__)
 
 # Create Blueprint for polling API
 polling_api = Blueprint('polling_api', __name__, url_prefix='/api/v1')
+
+
+@polling_api.route('/ping', methods=['GET'])
+def ping():
+    """Lightweight liveness probe that does not touch DB/Redis"""
+    return jsonify({
+        'success': True,
+        'data': {
+            'status': 'ok',
+        },
+        'timestamp': datetime.now().isoformat()
+    })
 
 
 @polling_api.route('/batches', methods=['GET'])
@@ -558,7 +570,7 @@ def get_system_stats():
 def get_batch_chunks(batch_id: str):
     """Get chunk details for a batch"""
     try:
-        from database_models import ProcessingChunk, db_manager
+        from .database_models import ProcessingChunk, db_manager
 
         with db_manager.get_session() as session:
             chunks = session.query(ProcessingChunk).filter_by(batch_id=batch_id).order_by(
@@ -614,13 +626,13 @@ def health_check():
     """Health check endpoint"""
     try:
         # Check database connection
-        from database_models import db_manager
+        from src.database_models import db_manager
         from sqlalchemy import text
         with db_manager.get_session() as session:
             session.execute(text("SELECT 1")).fetchone()
 
         # Check Redis connection
-        from job_queue import job_queue
+        from src.job_queue import job_queue
         job_queue.redis_client.ping()
 
         return jsonify({

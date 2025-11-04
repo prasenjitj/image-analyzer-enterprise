@@ -3,6 +3,7 @@ Enterprise Flask application for scalable batch image processing
 
 Integrates PostgreSQL, Redis, batch management, and polling APIs for 15M URL processing
 """
+from typing import Tuple
 import os
 import logging
 import signal
@@ -16,13 +17,17 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 from werkzeug.utils import secure_filename
 
 # Import enterprise components
-from enterprise_config import config
-from database_models import db_manager, ProcessingBatch
-from job_queue import job_queue, start_background_workers
-from batch_manager import batch_manager
-from polling_api import polling_api
-from export_manager import export_manager
-from export_api import export_api
+from .enterprise_config import config
+from .database_models import db_manager, ProcessingBatch
+from .job_queue import job_queue, start_background_workers
+from .batch_manager import batch_manager
+from .polling_api import polling_api
+from .export_manager import export_manager
+from .export_api import export_api
+
+# Connection retry utilities
+from sqlalchemy.exc import OperationalError, ArgumentError
+import socket
 
 # Original components (for fallback functionality) - commented out missing modules
 # from .main import ScalableImageAnalyzer
@@ -42,6 +47,250 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Database Connection Diagnostics and Recovery
+# ============================================================================
+
+def diagnose_connection_issue(db_url: str, error: Exception) -> str:
+    """
+    Diagnose the root cause of database connection failure
+
+    Args:
+        db_url: PostgreSQL connection URL
+        error: The exception that was raised
+
+    Returns:
+        Diagnostic message with suggestions
+    """
+    error_str = str(error).lower()
+
+    # Parse connection URL for diagnostics
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(db_url)
+        host = parsed.hostname or "unknown"
+        port = parsed.port or 5432
+
+        # Check if using private IP
+        is_private = host.startswith(('10.', '172.', '192.168'))
+
+    except Exception:
+        host = "unknown"
+        port = "unknown"
+        is_private = False
+
+    diagnostics = []
+
+    # Classify error and provide guidance
+    if "connection timed out" in error_str or "timeout" in error_str:
+        diagnostics.extend([
+            f"Connection Timeout to {host}:{port}",
+            "Possible causes:",
+            "1. VPC Connector not configured (for private IPs)",
+            "2. VPC Connector not yet READY (still creating)",
+            "3. Firewall rules blocking traffic",
+            "4. Database server not listening on expected port",
+            "5. Network routing issue between Cloud Run and database",
+            "",
+            "Immediate actions:",
+            "- Run: python diagnostic_db_connection.py",
+            "- Run: bash validate_vpc_connector.sh PROJECT_ID REGION",
+            f"- Check database is listening: ssh DB_HOST 'netstat -tlnp | grep {port}'",
+            "- See: POSTGRESQL_TIMEOUT_TROUBLESHOOTING.md for detailed guide"
+        ])
+
+    elif "connection refused" in error_str:
+        diagnostics.extend([
+            f"Connection Refused to {host}:{port}",
+            "Possible causes:",
+            "1. PostgreSQL server not running",
+            "2. PostgreSQL not listening on port or IP",
+            "3. Firewall blocking connections",
+            "",
+            "Immediate actions:",
+            f"- Check PostgreSQL is running: ssh DB_HOST 'systemctl status postgresql'",
+            f"- Check if listening: ssh DB_HOST 'netstat -tlnp | grep 5432'",
+            "- See: POSTGRESQL_TIMEOUT_TROUBLESHOOTING.md Step 6"
+        ])
+
+    elif "password authentication failed" in error_str or "authentication failed" in error_str:
+        diagnostics.extend([
+            "Authentication Failed",
+            "Possible causes:",
+            "1. Incorrect password in DATABASE_URL",
+            "2. User doesn't exist in PostgreSQL",
+            "",
+            "Immediate actions:",
+            "- Verify DATABASE_URL credentials",
+            "- Check user exists: ssh DB_HOST 'sudo -u postgres psql -l'",
+            "- See: POSTGRESQL_TIMEOUT_TROUBLESHOOTING.md Step 2"
+        ])
+
+    elif "does not exist" in error_str:
+        diagnostics.extend([
+            "Database or User Does Not Exist",
+            "Possible causes:",
+            "1. Database name wrong in DATABASE_URL",
+            "2. User doesn't exist",
+            "",
+            "Immediate actions:",
+            "- Verify database and user in DATABASE_URL",
+            "- Check: ssh DB_HOST 'sudo -u postgres psql -l'",
+            "- See: POSTGRESQL_TIMEOUT_TROUBLESHOOTING.md Step 2"
+        ])
+
+    else:
+        diagnostics.extend([
+            f"Database Connection Error: {type(error).__name__}",
+            f"Error details: {error_str}",
+            "",
+            "Immediate actions:",
+            "- Run diagnostics: python diagnostic_db_connection.py",
+            "- Check DATABASE_URL is set correctly",
+            "- See: POSTGRESQL_TIMEOUT_TROUBLESHOOTING.md"
+        ])
+
+    if is_private:
+        diagnostics.extend([
+            "",
+            "NOTE: Private IP detected ({host})",
+            "- This requires Serverless VPC Connector",
+            "- See: POSTGRESQL_TIMEOUT_TROUBLESHOOTING.md Step 3-5"
+        ])
+
+    return "\n".join(diagnostics)
+
+
+def test_database_connectivity(db_url: str, timeout: int = 5) -> Tuple[bool, str]:
+    """
+    Test database connectivity and return status
+
+    Args:
+        db_url: PostgreSQL connection URL
+        timeout: Connection timeout in seconds
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(db_url)
+        host = parsed.hostname
+        port = parsed.port or 5432
+
+        # Test network connectivity first
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+
+        try:
+            result = sock.connect_ex((host, port))
+            sock.close()
+
+            if result == 0:
+                return True, f"Network connectivity OK to {host}:{port}"
+            elif result == 110:
+                return False, f"Connection timeout to {host}:{port} - timeout"
+            elif result == 111:
+                return False, f"Connection refused by {host}:{port} - server not listening"
+            else:
+                return False, f"Connection error {result} to {host}:{port}"
+
+        except socket.timeout:
+            return False, f"Socket timeout connecting to {host}:{port}"
+        except Exception as e:
+            return False, f"Socket error: {e}"
+
+    except Exception as e:
+        return False, f"Error parsing connection string: {e}"
+
+
+def initialize_database_with_retries(max_attempts: int = 5,
+                                     initial_delay: float = 1.0) -> bool:
+    """
+    Initialize database with exponential backoff retry logic
+
+    Args:
+        max_attempts: Maximum number of connection attempts
+        initial_delay: Initial delay in seconds
+
+    Returns:
+        True if successful, False if all attempts failed
+    """
+    attempt = 1
+    delay = initial_delay
+
+    while attempt <= max_attempts:
+        try:
+            logger.info(
+                f"Database initialization attempt {attempt}/{max_attempts}...")
+
+            # Test network connectivity first
+            net_ok, net_msg = test_database_connectivity(config.database_url)
+            if not net_ok:
+                logger.warning(f"Network test failed: {net_msg}")
+                # Network issue - worth retrying after delay
+            else:
+                logger.info(f"Network test passed: {net_msg}")
+
+            # Try to create tables
+            logger.info("Creating database tables...")
+            db_manager.create_tables()
+
+            # Verify connection by running a simple query
+            logger.info("Verifying database connection with test query...")
+            session = db_manager.get_session()
+            try:
+                session.execute(text("SELECT 1"))
+                session.close()
+            except Exception as e:
+                session.close()
+                raise e
+
+            logger.info("✅ Database initialized successfully!")
+            return True
+
+        except OperationalError as e:
+            logger.error(
+                f"Database operational error (attempt {attempt}/{max_attempts}): {e}")
+            logger.error(diagnose_connection_issue(config.database_url, e))
+
+            if attempt < max_attempts:
+                logger.info(f"Retrying in {delay:.1f} seconds...")
+                time.sleep(delay)
+                # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                delay = min(delay * 2, 30)  # Cap at 30 seconds
+
+            attempt += 1
+
+        except ArgumentError as e:
+            # Connection string format error - don't retry
+            logger.error(f"Invalid database URL format: {e}")
+            logger.error("Check DATABASE_URL environment variable")
+            return False
+
+        except Exception as e:
+            logger.error(
+                f"Unexpected error during database initialization: {e}")
+            logger.error(diagnose_connection_issue(config.database_url, e))
+
+            if attempt < max_attempts:
+                logger.info(f"Retrying in {delay:.1f} seconds...")
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+
+            attempt += 1
+
+    logger.error(
+        f"❌ Failed to initialize database after {max_attempts} attempts")
+    return False
+
+
+# ============================================================================
+# Application Factory
+# ============================================================================
+
+
 def create_enterprise_app():
     """Create and configure the enterprise Flask application"""
 
@@ -59,20 +308,46 @@ def create_enterprise_app():
         'JSONIFY_PRETTYPRINT_REGULAR': True
     })
 
-    # Initialize enterprise components
+    # Initialize enterprise components with retry logic
+    db_initialized = False
+    workers_started = False
+
     try:
-        # Initialize database
-        logger.info("Initializing database connection...")
-        db_manager.create_tables()
+        # Optionally skip DB initialization during cold start for serverless
+        skip_db_init = os.environ.get(
+            'SKIP_DB_INIT_ON_STARTUP', 'false').lower() == 'true'
+        if skip_db_init:
+            logger.info(
+                "Skipping database initialization on startup (SKIP_DB_INIT_ON_STARTUP=true)")
+            db_initialized = False
+        else:
+            # Initialize database with exponential backoff
+            logger.info(
+                "Initializing database connection (with retry logic)...")
+            db_initialized = initialize_database_with_retries(
+                max_attempts=5, initial_delay=1.0)
+
+        if not db_initialized:
+            logger.warning(
+                "Database initialization failed - some features may not work")
 
         # Job queue is initialized automatically
         logger.info("Job queue ready...")
 
-        # Start background workers
-        logger.info("Starting background workers...")
-        start_background_workers(num_workers=config.max_workers)
-
-        logger.info("Enterprise components initialized successfully")
+        # Start background workers (only if database is ready)
+        if db_initialized:
+            try:
+                logger.info("Starting background workers...")
+                start_background_workers(num_workers=config.max_workers)
+                workers_started = True
+                logger.info("Enterprise components initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to start background workers: {e}")
+                logger.info(
+                    "Application will continue with limited functionality")
+        else:
+            logger.warning(
+                "Skipping background worker startup due to database initialization failure")
 
     except Exception as e:
         logger.error(f"Failed to initialize enterprise components: {e}")
@@ -87,6 +362,10 @@ def create_enterprise_app():
     # Register API blueprints
     app.register_blueprint(polling_api)
     app.register_blueprint(export_api)
+
+    # Store initialization status in app context
+    app.db_initialized = db_initialized
+    app.workers_started = workers_started
 
     # Main dashboard route
     @app.route('/')
@@ -570,7 +849,7 @@ def create_enterprise_app():
         """Get queue status including stuck jobs"""
         try:
             # Workaround: Implement queue status directly
-            from job_queue import job_queue
+            from .job_queue import job_queue
             import redis
             import json
 
@@ -628,7 +907,7 @@ def create_enterprise_app():
             clean_database = data.get('clean_database', True)
 
             # Workaround: Implement cleanup directly
-            from job_queue import job_queue
+            from .job_queue import job_queue
             import redis
             import json
             from datetime import datetime, timedelta
@@ -672,7 +951,7 @@ def create_enterprise_app():
             # 2. Clean database records if requested
             if clean_database:
                 try:
-                    from database_models import db_manager, ProcessingBatch, ProcessingChunk, BatchStatus, ChunkStatus
+                    from .database_models import db_manager, ProcessingBatch, ProcessingChunk, BatchStatus, ChunkStatus
 
                     # Reset stuck batches older than max_age_hours
                     # Use timezone-aware datetime for proper comparison
@@ -764,7 +1043,11 @@ def create_enterprise_app():
     def admin_reset_batch(batch_id):
         """Reset a stuck batch back to PENDING status"""
         try:
-            data = request.get_json() or {}
+            # Safely get JSON data with fallback to empty dict
+            data = request.get_json(force=False, silent=True)
+            if data is None:
+                data = {}
+
             force = data.get('force', False)
 
             result = batch_manager.reset_stuck_batch(batch_id, force=force)
@@ -784,8 +1067,18 @@ def create_enterprise_app():
     def admin_start_batch(batch_id):
         """Start a batch"""
         try:
-            # Use the existing batch resume logic
-            return redirect(url_for('resume_batch', batch_id=batch_id))
+            # Use the batch manager to start processing
+            result = batch_manager.start_batch_processing(batch_id)
+            if result:
+                return jsonify({
+                    'success': True,
+                    'message': 'Batch started successfully'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to start batch'
+                }), 400
         except Exception as e:
             logger.error(f"Error starting batch {batch_id}: {e}")
             return jsonify({
@@ -913,7 +1206,7 @@ def create_enterprise_app():
         """Administrative dashboard"""
         try:
             # Workaround: Implement queue status directly until class loading is fixed
-            from job_queue import job_queue
+            from .job_queue import job_queue
             import redis
             import json
 
@@ -1024,7 +1317,7 @@ def create_enterprise_app():
     def admin_debug():
         """Debug endpoint to check queue status data"""
         try:
-            from job_queue import job_queue
+            from .job_queue import job_queue
             queue_stats = job_queue.get_queue_stats()
 
             return jsonify({
@@ -1098,7 +1391,7 @@ def create_enterprise_app():
     def api_queue_status():
         """API endpoint for queue status"""
         try:
-            from job_queue import job_queue
+            from .job_queue import job_queue
 
             # Get queue statistics
             queue_stats = {
@@ -1286,7 +1579,7 @@ def create_enterprise_app():
     def api_get_batch_data():
         """API endpoint to get batch data with filtering, pagination, and sorting"""
         try:
-            from database_models import URLAnalysisResult
+            from .database_models import URLAnalysisResult
             from sqlalchemy import asc, desc, and_, String
 
             # Get query parameters
@@ -1390,7 +1683,7 @@ def create_enterprise_app():
     def api_export_batch_data():
         """API endpoint to export batch data as CSV with streaming"""
         try:
-            from database_models import URLAnalysisResult
+            from .database_models import URLAnalysisResult
             from sqlalchemy import and_, String
             import csv
             import io
@@ -1511,7 +1804,7 @@ def create_enterprise_app():
         try:
             # Get the result from database
             with db_manager.get_session() as session:
-                from database_models import URLAnalysisResult
+                from .database_models import URLAnalysisResult
                 result = session.query(URLAnalysisResult).filter_by(
                     id=result_id).first()
 
@@ -1577,7 +1870,7 @@ def create_enterprise_app():
             job_queue.stop()
 
             # Close database connections
-            db_manager.close_connections()
+            db_manager.close()
 
             logger.info("Shutdown complete")
         except Exception as e:
@@ -1602,7 +1895,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         description="Enterprise Image Processing Application")
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
+    parser.add_argument('--host', default='127.0.0.1',
+                        help='Host to bind to (use 0.0.0.0 for production)')
     parser.add_argument('--port', type=int, default=5000,
                         help='Port to bind to')
     parser.add_argument('--debug', action='store_true',

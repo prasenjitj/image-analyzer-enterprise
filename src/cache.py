@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from enterprise_config import config
+from .enterprise_config import config
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ class AnalysisCache:
             conn.commit()
 
     def get_url_hash(self, url: str) -> str:
-        """Generate hash for URL"""
-        return hashlib.md5(url.encode('utf-8')).hexdigest()
+        """Generate hash for URL (non-security use)"""
+        return hashlib.md5(url.encode('utf-8'), usedforsecurity=False).hexdigest()
 
     def get_analysis(self, url: str) -> Optional[Dict[str, Any]]:
         """Get cached analysis for URL"""

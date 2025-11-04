@@ -12,8 +12,8 @@ import tempfile
 import os
 from io import BytesIO, StringIO
 
-from export_manager import export_manager
-from database_models import ProcessingBatch, db_manager
+from .export_manager import export_manager
+from .database_models import ProcessingBatch, db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +300,7 @@ def preview_batch_export(batch_id: str):
             filters['failed_only'] = True
 
         # Limit preview to 100 records
-        from database_models import URLAnalysisResult
+        from .database_models import URLAnalysisResult
 
         with db_manager.get_session() as session:
             query = session.query(
@@ -417,7 +417,7 @@ def get_batch_export_summary(batch_id: str):
                 }), 404
 
             # Get result counts
-            from database_models import URLAnalysisResult
+            from .database_models import URLAnalysisResult
 
             total_results = session.query(
                 URLAnalysisResult).filter_by(batch_id=batch_id).count()

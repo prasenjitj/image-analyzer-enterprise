@@ -14,7 +14,7 @@ from PIL import Image
 import io
 import requests
 
-from enterprise_config import config
+from .enterprise_config import config
 
 logger = logging.getLogger(__name__)
 
@@ -281,8 +281,8 @@ class ImageProcessor:
             raise
 
     def get_url_hash(self, url: str) -> str:
-        """Generate hash for URL (for caching)"""
-        return hashlib.md5(url.encode()).hexdigest()
+        """Generate hash for URL (for caching, non-security use)"""
+        return hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
 
 
 # Global instance for easy access

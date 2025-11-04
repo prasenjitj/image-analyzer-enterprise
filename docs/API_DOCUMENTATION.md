@@ -109,7 +109,7 @@ Get comprehensive details for a specific batch.
       "batch_name": "My Image Analysis Batch",
       "status": "processing",
       "total_urls": 1500,
-      "chunk_size": 1000,
+      "chunk_size": 2000,  // Updated default optimized chunk size
       "total_chunks": 2,
       "is_active": true,
       "created_at": "2025-11-02T10:30:00Z",
@@ -554,8 +554,9 @@ Export results for a specific batch with filtering options.
     "database": "connected",
     "redis": "connected",
     "config": {
-      "chunk_size": 1000,
-      "max_concurrent_batches": 5,
+      "chunk_size": 2000,  // Updated optimized chunk size
+      "max_concurrent_batches": 20,  // Updated for higher throughput
+      "max_concurrent_workers": 100,  // Updated worker count
       "api_keys_count": 3
     }
   },
@@ -737,18 +738,32 @@ Download CSV import template.
 - **ExportError**: Error during export generation
 - **SystemError**: System connectivity or configuration issues
 
-## Rate Limits
+## Rate Limits (Updated for Performance)
 
-### API Rate Limits
+### API Rate Limits (Optimized)
 - Default: 1000 requests per hour per IP
-- Batch operations: 10 concurrent batches maximum
-- Upload size: 100MB maximum file size
+- Batch operations: 20 concurrent batches maximum (increased from 10)
+- Upload size: 200MB maximum file size (increased from 100MB)
 - Export size: 1M records maximum per export
+- Chunk size: 2000 URLs per chunk (optimized from 1000)
 
-### Google Vision API Limits
-- 55 requests per minute per API key (configurable)
-- Multiple API keys supported for increased throughput
+### Google Vision API Limits (Enhanced)
+- Base: 55 requests per minute per API key
+- With multiple keys: Up to 200+ requests per minute total
 - Automatic rate limiting and retry logic
+- Dynamic rate adjustment based on API response patterns
+- Support for 6+ API keys for maximum throughput
+
+### Performance Configuration
+Current optimized defaults:
+- `MAX_CONCURRENT_WORKERS`: 100
+- `MAX_CONCURRENT_BATCHES`: 20  
+- `MAX_CONCURRENT_REQUESTS`: 25
+- `CHUNK_SIZE`: 2000
+- `DATABASE_POOL_SIZE`: 200
+- `REDIS_MAX_CONNECTIONS`: 1000
+
+> **Note**: For comprehensive performance tuning and optimization strategies, see [PERFORMANCE_OPTIMIZATION_GUIDE.md](../PERFORMANCE_OPTIMIZATION_GUIDE.md).
 
 ## Examples
 
