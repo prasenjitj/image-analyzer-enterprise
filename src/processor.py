@@ -220,8 +220,8 @@ class ImageProcessor:
 
             # Create prompt for store image analysis
             prompt = """
-            Analyze this image and determine if it shows a physical store or business location. 
-            
+            Analyze this image and determine if it shows a physical store or business location.
+
             Please provide a JSON response with the following structure:
             {
                 "store_image": true/false,
@@ -230,7 +230,7 @@ class ImageProcessor:
                 "business_contact": "phone number, email, or website if visible",
                 "image_description": "brief description of what the image shows"
             }
-            
+
             Guidelines:
             - store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment
             - Extract any visible text including store names, signs, phone numbers, websites
@@ -276,6 +276,26 @@ class ImageProcessor:
                     if isinstance(analysis['store_image'], str):
                         analysis['store_image'] = analysis['store_image'].lower() in [
                             'true', 'yes', '1']
+
+                    # Normalize None -> False for now; we'll set it properly below
+                    if analysis['store_image'] is None:
+                        analysis['store_image'] = False
+
+                    # Set store_image based solely on whether store_name contains valid text
+                    def _is_valid_store_name(s):
+                        if not s or not isinstance(s, str):
+                            return False
+                        s_clean = s.strip().lower()
+                        if len(s_clean) < 2:
+                            return False
+                        for kw in ['not visible', 'none visible', 'no visible', 'not readable', 'none readable', 'unreadable', 'not legible', 'illegible', 'n/a', 'none', 'null', 'empty', 'no text', 'no name']:
+                            if kw in s_clean:
+                                return False
+                        return True
+
+                    # Store Front should be yes if and only if there is valid text for a store name
+                    analysis['store_image'] = _is_valid_store_name(
+                        analysis.get('store_name'))
 
                     # Extract phone number from business_contact
                     analysis['phone_number'] = self._extract_phone_number(
