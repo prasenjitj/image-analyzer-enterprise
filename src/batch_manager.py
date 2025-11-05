@@ -1665,7 +1665,7 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
         with db_manager.get_session() as session:
             # Get chunk details
             chunk = session.query(ProcessingChunk).filter_by(
-                id=chunk_id, batch_id=batch_id).first()
+                chunk_id=chunk_id, batch_id=batch_id).first()
 
             if not chunk:
                 return {
@@ -1673,12 +1673,8 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                     'error': f'Chunk {chunk_id} not found'
                 }
 
-            # Get URLs for this chunk
-            from .database_models import URLToProcess, URLAnalysisResult
-            urls = session.query(URLToProcess).filter_by(
-                batch_id=batch_id,
-                chunk_number=chunk.chunk_number
-            ).all()
+            # Get URLs from chunk.urls (JSON field)
+            urls = chunk.urls or []
 
             if not urls:
                 return {
@@ -1687,9 +1683,6 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
             # Process each URL in the chunk
-            # Note: ImageAnalyzer import would go here in a real implementation
-            # For demo purposes, we'll simulate processing
-
             successful_count = 0
             failed_count = 0
 
@@ -1697,25 +1690,78 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
             chunk.started_at = BatchManager._utc_now()
             session.commit()
 
-            for url_record in urls:
+            for url in urls:
                 try:
-                    # Simulate URL analysis (replace with actual analyzer in real implementation)
-                    result = {'success': True, 'simulated': True}
+                    # Import processor here to avoid circular imports
+                    from .processor import image_processor
+                    from .cache import get_cache
+
+                    # Get cache instance
+                    cache = get_cache()
+
+                    # Check if URL is in cache
+                    cached_analysis = cache.get_analysis(url)
+
+                    if cached_analysis:
+                        # Use cached result
+                        result = {
+                            'success': True,
+                            'analysis': cached_analysis,
+                            'cache_hit': True,
+                            'processing_time': 0.0
+                        }
+                    else:
+                        # Process URL
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        processing_result = loop.run_until_complete(
+                            image_processor.process_single_url(url)
+                        )
+
+                        result = {
+                            'success': processing_result.success,
+                            'analysis': processing_result.analysis if processing_result.success else None,
+                            'error': processing_result.error if not processing_result.success else None,
+                            'cache_hit': False,
+                            'processing_time': processing_result.processing_time
+                        }
+
+                        # Cache successful results
+                        if result['success'] and result['analysis']:
+                            cache.set_analysis(url, result['analysis'])
 
                     # Generate URL hash for database constraint
-                    url_hash = hashlib.sha256(
-                        url_record.url.encode('utf-8')).hexdigest()
+                    url_hash = hashlib.sha256(url.encode('utf-8')).hexdigest()
 
                     # Store result in database
                     analysis_result = URLAnalysisResult(
                         batch_id=batch_id,
                         chunk_id=chunk_id,
-                        url=url_record.url,
+                        url=url,
                         url_hash=url_hash,
                         success=result.get('success', False),
-                        analysis_data=result,
-                        analyzed_at=BatchManager._utc_now()
+                        error_message=result.get('error'),
+                        processing_time_seconds=result.get(
+                            'processing_time', 0.0),
+                        cache_hit=result.get('cache_hit', False)
                     )
+
+                    # Add analysis data if successful
+                    if result.get('success') and result.get('analysis'):
+                        analysis = result['analysis']
+                        analysis_result.store_image = analysis.get(
+                            'store_image', False)
+                        analysis_result.text_content = analysis.get(
+                            'text_content')
+                        analysis_result.store_name = analysis.get('store_name')
+                        analysis_result.business_contact = analysis.get(
+                            'business_contact')
+                        analysis_result.phone_number = analysis.get(
+                            'phone_number', False)
+                        analysis_result.image_description = analysis.get(
+                            'image_description')
+                        analysis_result.analysis_result = analysis
+
                     session.add(analysis_result)
 
                     if result.get('success'):
@@ -1724,21 +1770,21 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                         failed_count += 1
 
                 except Exception as e:
-                    logger.error(f"Error analyzing URL {url_record.url}: {e}")
+                    logger.error(f"Error analyzing URL {url}: {e}")
 
                     # Generate URL hash for database constraint
-                    url_hash = hashlib.sha256(
-                        url_record.url.encode('utf-8')).hexdigest()
+                    url_hash = hashlib.sha256(url.encode('utf-8')).hexdigest()
 
                     # Store failed result
                     analysis_result = URLAnalysisResult(
                         batch_id=batch_id,
                         chunk_id=chunk_id,
-                        url=url_record.url,
+                        url=url,
                         url_hash=url_hash,
                         success=False,
-                        analysis_data={'error': str(e)},
-                        analyzed_at=BatchManager._utc_now()
+                        error_message=str(e),
+                        processing_time_seconds=0.0,
+                        cache_hit=False
                     )
                     session.add(analysis_result)
                     failed_count += 1
@@ -1758,7 +1804,7 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
             session.commit()
 
             # Update overall batch status
-            batch_manager.update_batch_progress(batch_id)
+            _update_batch_progress(batch_id)
 
             logger.info(
                 f"Completed chunk {chunk_id}: {successful_count} successful, {failed_count} failed")
