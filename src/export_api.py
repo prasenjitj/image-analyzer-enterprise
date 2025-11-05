@@ -34,9 +34,7 @@ def export_batch_results(batch_id: str):
         filters = {}
 
         # Success/failure filters
-        if request.args.get('success_only') == 'true':
-            filters['success_only'] = True
-        elif request.args.get('failed_only') == 'true':
+        if request.args.get('failed_only') == 'true':
             filters['failed_only'] = True
 
         # Date range filters
@@ -294,9 +292,8 @@ def preview_batch_export(batch_id: str):
 
         # Parse filters (same as export)
         filters = {}
-        if request.args.get('success_only') == 'true':
-            filters['success_only'] = True
-        elif request.args.get('failed_only') == 'true':
+        # Success/failure filters
+        if request.args.get('failed_only') == 'true':
             filters['failed_only'] = True
 
         # Limit preview to 100 records
@@ -307,9 +304,7 @@ def preview_batch_export(batch_id: str):
                 URLAnalysisResult).filter_by(batch_id=batch_id)
 
             # Apply filters
-            if filters.get('success_only'):
-                query = query.filter(URLAnalysisResult.success == True)
-            elif filters.get('failed_only'):
+            if filters.get('failed_only'):
                 query = query.filter(URLAnalysisResult.success == False)
 
             results = query.limit(100).all()
@@ -453,7 +448,6 @@ def get_batch_export_summary(batch_id: str):
                     'xlsx': round(xlsx_size_mb, 2)
                 },
                 'available_filters': {
-                    'success_only': f'{successful_results} records',
                     'failed_only': f'{failed_results} records',
                     'has_store_name': 'Records with store names',
                     'has_contact': 'Records with business contacts'

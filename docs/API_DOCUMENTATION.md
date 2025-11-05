@@ -337,7 +337,6 @@ Export results for a specific batch with filtering options.
 **Query Parameters**:
 - `format` (optional): Export format (`csv`, `json`, `xlsx`) (default: `csv`)
 - `metadata` (optional): Include metadata fields (default: `true`)
-- `success_only` (optional): Export only successful results (default: `false`)
 - `failed_only` (optional): Export only failed results (default: `false`)
 - `start_date` (optional): Filter results from date (ISO format)
 - `end_date` (optional): Filter results to date (ISO format)
@@ -373,7 +372,7 @@ Export results for a specific batch with filtering options.
     "batch_ids": ["batch1", "batch2"],
     "start_date": "2025-11-01T00:00:00Z",
     "end_date": "2025-11-02T23:59:59Z",
-    "success_only": true
+    "failed_only": true
   },
   "format": "xlsx",
   "limit": 10000
@@ -506,7 +505,6 @@ Export results for a specific batch with filtering options.
       "xlsx": 2.15
     },
     "available_filters": {
-      "success_only": "1440 records",
       "failed_only": "60 records",
       "has_store_name": "Records with store names",
       "has_contact": "Records with business contacts"
@@ -784,7 +782,7 @@ curl http://localhost:5001/api/v1/batches/{batch_id}/progress
 
 #### 3. Export Results
 ```bash
-curl "http://localhost:5001/api/v1/export/batch/{batch_id}?format=csv&success_only=true" \
+curl "http://localhost:5001/api/v1/export/batch/{batch_id}?format=csv&failed_only=true" \
   -o results.csv
 ```
 

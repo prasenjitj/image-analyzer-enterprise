@@ -579,11 +579,6 @@
                                 Excel Export
                             </a>
                             <hr class="my-2">
-                            <a href="/export/batch/{{ batch.batch_id }}?format=csv&success_only=true"
-                                class="block px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-check-circle text-green-600 mr-2"></i>
-                                Successful Only (CSV)
-                            </a>
                             <a href="/export/batch/{{ batch.batch_id }}?format=csv&failed_only=true"
                                 class="block px-4 py-2 text-gray-700 hover:bg-gray-100">
                                 <i class="fas fa-times-circle text-red-600 mr-2"></i>
@@ -651,7 +646,7 @@
                                 <select id="statusFilter" onchange="filterResults()"
                                     class="text-sm border border-gray-300 rounded-lg px-3 py-2">
                                     <option value="">All Results</option>
-                                    <option value="success">Success</option>
+                                    <option value="success">Successful</option>
                                     <option value="failed">Failed</option>
                                 </select>
                                 <button onclick="refreshResults()"

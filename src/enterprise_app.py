@@ -711,8 +711,6 @@ def create_enterprise_app():
 
             # Parse filters
             filters = {}
-            if request.args.get('success_only') == 'true':
-                filters['success_only'] = True
             if request.args.get('failed_only') == 'true':
                 filters['failed_only'] = True
 
@@ -1585,7 +1583,6 @@ def create_enterprise_app():
             # Get query parameters
             page = request.args.get('page', 1, type=int)
             per_page = request.args.get('per_page', 25, type=int)
-            success_filter = request.args.get('success', 'all')
             store_image_filter = request.args.get('store_image', 'all')
             batch_id_filter = request.args.get('batch_id', '')
             sort_param = request.args.get('sort', 'created_at:desc')
@@ -1597,7 +1594,7 @@ def create_enterprise_app():
             # Parse sort parameter
             sort_parts = sort_param.split(':')
             sort_field = sort_parts[0] if sort_parts[0] in [
-                'success', 'store_image', 'store_name', 'processing_time_seconds', 'created_at'] else 'created_at'
+                'store_image', 'store_name', 'processing_time_seconds', 'created_at'] else 'created_at'
             sort_dir = sort_parts[1] if len(sort_parts) > 1 and sort_parts[1] in [
                 'asc', 'desc'] else 'desc'
 
@@ -1607,12 +1604,6 @@ def create_enterprise_app():
 
                 # Apply filters
                 filters = []
-
-                # Success filter
-                if success_filter == 'true':
-                    filters.append(URLAnalysisResult.success == True)
-                elif success_filter == 'false':
-                    filters.append(URLAnalysisResult.success == False)
 
                 # Store image filter
                 if store_image_filter == 'true':
@@ -1651,7 +1642,6 @@ def create_enterprise_app():
                 data = []
                 for result in results:
                     data.append({
-                        'success': result.success,
                         'store_image': result.store_image,
                         'text_content': result.text_content,
                         'store_name': result.store_name,
@@ -1689,7 +1679,6 @@ def create_enterprise_app():
             import io
 
             # Get query parameters (same as list endpoint)
-            success_filter = request.args.get('success', 'all')
             store_image_filter = request.args.get('store_image', 'all')
             batch_id_filter = request.args.get('batch_id', '')
 
@@ -1699,12 +1688,6 @@ def create_enterprise_app():
 
                 # Apply filters
                 filters = []
-
-                # Success filter
-                if success_filter == 'true':
-                    filters.append(URLAnalysisResult.success == True)
-                elif success_filter == 'false':
-                    filters.append(URLAnalysisResult.success == False)
 
                 # Store image filter
                 if store_image_filter == 'true':
@@ -1738,14 +1721,13 @@ def create_enterprise_app():
                 writer = csv.writer(csv_buffer)
 
                 # Write header
-                headers = ['success', 'store_front', 'text_content', 'store_name', 'business_contact',
+                headers = ['store_front', 'text_content', 'store_name', 'business_contact',
                            'image_description', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
                 writer.writerow(headers)
 
                 # Write data rows
                 for result in results:
                     writer.writerow([
-                        'true' if result.success else 'false',
                         'true' if result.store_image else 'false',
                         result.text_content or '',
                         result.store_name or '',

@@ -615,19 +615,7 @@
 
                 <!-- Filters Section -->
                 <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                        <!-- Success Filter -->
-                        <div>
-                            <label for="filterSuccess" class="block text-sm font-medium text-gray-700 mb-2">
-                                Success Status
-                            </label>
-                            <select id="filterSuccess"
-                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
-                                <option value="all">All Results</option>
-                                <option value="true">Success Only</option>
-                                <option value="false">Failed Only</option>
-                            </select>
-                        </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
                         <!-- Store Front Filter -->
                         <div>
@@ -688,14 +676,6 @@
                     <table id="batchDataTable" class="w-full" role="table" aria-label="Batch data results">
                         <thead class="sticky top-0 z-10" role="rowgroup">
                             <tr role="row" class="bg-white border-b border-gray-200">
-                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
-                                    role="columnheader" aria-sort="none" data-sort="success" tabindex="0">
-                                    <div class="flex items-center justify-between gap-2">
-                                        <span>Success</span>
-                                        <i
-                                            class="fas fa-sort text-xs opacity-50 group-hover:opacity-100 transition-opacity text-gray-600"></i>
-                                    </div>
-                                </th>
                                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-widest cursor-pointer group hover:bg-gray-50 transition-colors duration-200"
                                     role="columnheader" aria-sort="none" data-sort="store_image" tabindex="0">
                                     <div class="flex items-center justify-between gap-2">
@@ -1456,7 +1436,6 @@
         let sortDirection = 'asc';
 
         async function fetchBatchData() {
-            const success = document.getElementById('filterSuccess').value;
             const storeImage = document.getElementById('filterStoreImage').value;
             const batchId = document.getElementById('filterBatchId').value;
             const perPage = document.getElementById('filterPerPage').value;
@@ -1469,7 +1448,6 @@
             const params = new URLSearchParams({
                 page: currentPage,
                 per_page: perPage,
-                success: success,
                 store_image: storeImage,
                 ...(batchId && { batch_id: batchId }),
                 ...(currentSort && { sort: `${currentSort}:${sortDirection}` })
@@ -1507,11 +1485,6 @@
                 tr.setAttribute('role', 'row');
 
                 tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${row.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                            ${row.success ? '✓ Yes' : '✗ No'}
-                        </span>
-                    </td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         ${row.store_image ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">✓ Yes</span>' : '<span class="text-gray-500">—</span>'}
                     </td>
@@ -1580,12 +1553,10 @@
 
         function initBatchDataFilters() {
             // Filter change handlers
-            const filterSuccess = document.getElementById('filterSuccess');
             const filterStoreImage = document.getElementById('filterStoreImage');
             const filterBatchId = document.getElementById('filterBatchId');
             const filterPerPage = document.getElementById('filterPerPage');
 
-            if (filterSuccess) filterSuccess.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
             if (filterStoreImage) filterStoreImage.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
             if (filterBatchId) filterBatchId.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
             if (filterPerPage) filterPerPage.addEventListener('change', () => { currentPage = 1; fetchBatchData(); });
@@ -1662,12 +1633,10 @@
             const exportBtn = document.getElementById('exportButton');
             if (exportBtn) {
                 exportBtn.addEventListener('click', () => {
-                    const success = document.getElementById('filterSuccess').value;
                     const storeImage = document.getElementById('filterStoreImage').value;
                     const batchId = document.getElementById('filterBatchId').value;
 
                     const params = new URLSearchParams({
-                        success: success,
                         store_image: storeImage,
                         ...(batchId && { batch_id: batchId })
                     });

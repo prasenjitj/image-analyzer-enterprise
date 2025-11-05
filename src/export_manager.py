@@ -194,10 +194,8 @@ class ExportManager:
         query = session.query(URLAnalysisResult).filter_by(batch_id=batch_id)
 
         if filters:
-            # Apply success filter
-            if 'success_only' in filters and filters['success_only']:
-                query = query.filter(URLAnalysisResult.success == True)
-            elif 'failed_only' in filters and filters['failed_only']:
+            # Apply failed filter
+            if 'failed_only' in filters and filters['failed_only']:
                 query = query.filter(URLAnalysisResult.success == False)
 
             # Apply date range filter
@@ -223,9 +221,7 @@ class ExportManager:
             query = query.filter(
                 URLAnalysisResult.batch_id.in_(filters['batch_ids']))
 
-        if 'success_only' in filters and filters['success_only']:
-            query = query.filter(URLAnalysisResult.success == True)
-        elif 'failed_only' in filters and filters['failed_only']:
+        if 'failed_only' in filters and filters['failed_only']:
             query = query.filter(URLAnalysisResult.success == False)
 
         if 'start_date' in filters:
@@ -273,7 +269,7 @@ class ExportManager:
 
         # CSV headers
         headers = [
-            'url', 'success', 'store_front', 'text_content', 'store_name',
+            'url', 'store_front', 'text_content', 'store_name',
             'business_contact', 'image_description', 'error_message',
             'processing_time_seconds', 'created_at', 'batch_id'
         ]
@@ -285,7 +281,6 @@ class ExportManager:
         for result in results:
             writer.writerow([
                 result.url,
-                'Yes' if result.success else 'No',
                 'Yes' if result.store_image else 'No',
                 result.text_content or '',
                 result.store_name or '',
@@ -335,7 +330,6 @@ class ExportManager:
         for result in results:
             data.append({
                 'URL': result.url,
-                'Success': 'Yes' if result.success else 'No',
                 'Store Front': 'Yes' if result.store_image else 'No',
                 'Text Content': result.text_content or '',
                 'Store Name': result.store_name or '',
@@ -383,7 +377,7 @@ class ExportManager:
             csv_buffer = io.StringIO()
 
             headers = [
-                'url', 'success', 'store_front', 'text_content', 'store_name',
+                'url', 'store_front', 'text_content', 'store_name',
                 'business_contact', 'image_description', 'error_message',
                 'processing_time_seconds', 'created_at', 'batch_id'
             ]
@@ -394,7 +388,6 @@ class ExportManager:
             for result in results:
                 writer.writerow([
                     result.url,
-                    'Yes' if result.success else 'No',
                     'Yes' if result.store_image else 'No',
                     result.text_content or '',
                     result.store_name or '',

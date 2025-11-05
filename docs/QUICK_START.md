@@ -140,8 +140,8 @@ curl -O http://localhost:5001/export/batch/{batch_id}?format=csv
 # JSON export
 curl -O http://localhost:5001/export/batch/{batch_id}?format=json
 
-# Filtered export (successful only)
-curl -O http://localhost:5001/export/batch/{batch_id}?format=csv&success_only=true
+# Filtered export (failed only)
+curl -O http://localhost:5001/export/batch/{batch_id}?format=csv&failed_only=true
 ```
 
 ## 🔧 Common Tasks
