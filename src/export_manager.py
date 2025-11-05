@@ -270,7 +270,7 @@ class ExportManager:
         # CSV headers
         headers = [
             'url', 'store_front', 'text_content', 'store_name',
-            'business_contact', 'image_description', 'error_message',
+            'business_contact', 'phone_number', 'image_description', 'error_message',
             'processing_time_seconds', 'created_at', 'batch_id'
         ]
 
@@ -285,6 +285,7 @@ class ExportManager:
                 result.text_content or '',
                 result.store_name or '',
                 result.business_contact or '',
+                'Yes' if result.business_contact else 'No',
                 result.image_description or '',
                 result.error_message or '',
                 result.processing_time_seconds or 0,
@@ -334,6 +335,7 @@ class ExportManager:
                 'Text Content': result.text_content or '',
                 'Store Name': result.store_name or '',
                 'Business Contact': result.business_contact or '',
+                'Phone Number': 'Yes' if result.phone_number else 'No',
                 'Image Description': result.image_description or '',
                 'Error Message': result.error_message or '',
                 'Processing Time (seconds)': result.processing_time_seconds or 0,
@@ -378,7 +380,7 @@ class ExportManager:
 
             headers = [
                 'url', 'store_front', 'text_content', 'store_name',
-                'business_contact', 'image_description', 'error_message',
+                'business_contact', 'phone_number', 'image_description', 'error_message',
                 'processing_time_seconds', 'created_at', 'batch_id'
             ]
 
@@ -392,6 +394,7 @@ class ExportManager:
                     result.text_content or '',
                     result.store_name or '',
                     result.business_contact or '',
+                    'Yes' if result.phone_number else 'No',
                     result.image_description or '',
                     result.error_message or '',
                     result.processing_time_seconds or 0,

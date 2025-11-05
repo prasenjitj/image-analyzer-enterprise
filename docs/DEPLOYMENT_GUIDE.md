@@ -110,6 +110,241 @@ GRANT ALL PRIVILEGES ON DATABASE image_analyzer TO analyzer_user;
 psql -h localhost -U analyzer_user -d image_analyzer -c "SELECT 1;"
 ```
 
+## Database Maintenance and Data Management
+
+### Database Management Script
+
+The application includes two database management utilities:
+
+#### Python Script (Recommended)
+Requires Python dependencies:
+```bash
+pip install -r requirements.txt
+python scripts/db_manage.py stats
+```
+
+#### Shell Script (Alternative)
+Direct SQL operations, no Python dependencies required:
+```bash
+# Configure database connection variables in the script first
+./scripts/db_maintenance.sh stats
+./scripts/db_maintenance.sh clear-old 30
+./scripts/db_maintenance.sh backup
+```
+
+**Available operations:**
+```bash
+# Show database statistics
+./scripts/db_maintenance.sh stats
+
+# Clear batches older than 30 days
+./scripts/db_maintenance.sh clear-old 30
+
+# Clear failed/cancelled batches
+./scripts/db_maintenance.sh clear-failed
+
+# Clear ALL data (dangerous!)
+./scripts/db_maintenance.sh clear-all
+
+# Optimize database (VACUUM, ANALYZE)
+./scripts/db_maintenance.sh optimize
+
+# Create backup
+./scripts/db_maintenance.sh backup ./backups
+```
+
+### Manual Database Operations
+
+#### View Database Statistics
+```sql
+-- Connect to database
+psql -h localhost -U analyzer_user -d image_analyzer
+
+-- Count records in each table
+SELECT 'processing_batches' as table_name, COUNT(*) as count FROM processing_batches
+UNION ALL
+SELECT 'processing_chunks', COUNT(*) FROM processing_chunks
+UNION ALL
+SELECT 'url_analysis_results', COUNT(*) FROM url_analysis_results;
+
+-- View batch status breakdown
+SELECT status, COUNT(*) as count
+FROM processing_batches
+GROUP BY status
+ORDER BY count DESC;
+
+-- Find oldest batch
+SELECT batch_id, batch_name, created_at
+FROM processing_batches
+ORDER BY created_at ASC
+LIMIT 1;
+```
+
+#### Clear Old Data (Safe Method)
+```sql
+-- Clear batches older than 30 days (adjust date as needed)
+-- First, delete associated analysis results
+DELETE FROM url_analysis_results
+WHERE batch_id IN (
+    SELECT batch_id FROM processing_batches
+    WHERE created_at < NOW() - INTERVAL '30 days'
+);
+
+-- Then delete chunks
+DELETE FROM processing_chunks
+WHERE batch_id IN (
+    SELECT batch_id FROM processing_batches
+    WHERE created_at < NOW() - INTERVAL '30 days'
+);
+
+-- Finally delete the batches
+DELETE FROM processing_batches
+WHERE created_at < NOW() - INTERVAL '30 days';
+```
+
+#### Clear Failed/Cancelled Batches
+```sql
+-- Delete failed/cancelled batches and their associated data
+-- First, delete associated analysis results
+DELETE FROM url_analysis_results
+WHERE batch_id IN (
+    SELECT batch_id FROM processing_batches
+    WHERE status IN ('failed', 'cancelled')
+);
+
+-- Then delete chunks
+DELETE FROM processing_chunks
+WHERE batch_id IN (
+    SELECT batch_id FROM processing_batches
+    WHERE status IN ('failed', 'cancelled')
+);
+
+-- Finally delete the batches
+DELETE FROM processing_batches
+WHERE status IN ('failed', 'cancelled');
+```
+
+#### Clear All Data (Dangerous - Use with Caution)
+```sql
+-- ⚠️  WARNING: This will delete ALL data permanently!
+-- Delete in correct order to respect foreign key constraints
+DELETE FROM url_analysis_results;
+DELETE FROM processing_chunks;
+DELETE FROM processing_batches;
+```
+
+#### Reset Database Tables (Nuclear Option)
+```sql
+-- ⚠️  EXTREME WARNING: This will DROP ALL TABLES and DATA!
+-- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS url_analysis_results;
+DROP TABLE IF EXISTS processing_chunks;
+DROP TABLE IF EXISTS processing_batches;
+
+-- Recreate tables (run the application initialization)
+-- python -c "from src.database_models import init_database; init_database()"
+```
+
+### Database Backup Before Clearing
+
+**Always backup before clearing data:**
+
+```bash
+#!/bin/bash
+# backup_before_clear.sh
+BACKUP_DIR="./backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+mkdir -p $BACKUP_DIR
+
+echo "📦 Creating database backup..."
+pg_dump -h localhost -U analyzer_user image_analyzer | \
+  gzip > $BACKUP_DIR/pre_clear_backup_$TIMESTAMP.sql.gz
+
+echo "✅ Backup created: $BACKUP_DIR/pre_clear_backup_$TIMESTAMP.sql.gz"
+echo "💡 Restore with: gunzip < $BACKUP_DIR/pre_clear_backup_$TIMESTAMP.sql.gz | psql -h localhost -U analyzer_user image_analyzer"
+```
+
+### Automated Cleanup Script
+
+Create a maintenance script for regular cleanup:
+
+```bash
+#!/bin/bash
+# db_maintenance.sh
+# Run this script weekly/monthly for database maintenance
+
+echo "🧹 Starting database maintenance..."
+
+# Backup before cleanup
+./backup_before_clear.sh
+
+# Clear old batches (older than 90 days)
+echo "🗑️  Clearing batches older than 90 days..."
+python scripts/db_manage.py clear-old --days 90 --confirm
+
+# Clear failed batches
+echo "🗑️  Clearing failed/cancelled batches..."
+python scripts/db_manage.py clear-failed --confirm
+
+# Vacuum and analyze for performance
+echo "🔧 Optimizing database..."
+psql -h localhost -U analyzer_user -d image_analyzer -c "VACUUM ANALYZE;"
+
+echo "✅ Database maintenance completed!"
+```
+
+#### Schedule Automated Maintenance
+
+```bash
+# Add to crontab for weekly maintenance (run as analyzer user)
+sudo -u analyzer crontab -e
+
+# Add this line for weekly maintenance on Sundays at 2 AM:
+# 0 2 * * 0 /opt/image-analyzer/db_maintenance.sh >> /opt/image-analyzer/logs/db_maintenance.log 2>&1
+```
+
+### Database Performance After Clearing
+
+After clearing large amounts of data, optimize the database:
+
+```bash
+# Vacuum full (reclaims space, may take time)
+psql -h localhost -U analyzer_user -d image_analyzer -c "VACUUM FULL;"
+
+# Reindex tables (rebuilds indexes)
+psql -h localhost -U analyzer_user -d image_analyzer -c "REINDEX DATABASE image_analyzer;"
+
+# Update table statistics
+psql -h localhost -U analyzer_user -d image_analyzer -c "ANALYZE;"
+```
+
+### Monitoring Database Size
+
+```bash
+# Check database size
+psql -h localhost -U analyzer_user -d image_analyzer -c "
+SELECT
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+"
+
+# Monitor growth over time
+psql -h localhost -U analyzer_user -d image_analyzer -c "
+SELECT
+    date(created_at) as day,
+    COUNT(*) as batches_created,
+    COUNT(CASE WHEN status = 'completed' THEN 1 END) as batches_completed
+FROM processing_batches
+WHERE created_at >= NOW() - INTERVAL '30 days'
+GROUP BY date(created_at)
+ORDER BY day DESC;
+"
+```
+
 ## Redis Setup
 
 ### Redis Installation

@@ -28,6 +28,7 @@ class ProcessingResult:
     error: Optional[str] = None
     processing_time: float = 0.0
     cache_hit: bool = False
+    phone_number: bool = False
 
 
 class ImageProcessor:
@@ -132,7 +133,8 @@ class ImageProcessor:
                 url=url,
                 success=True,
                 analysis=analysis,
-                processing_time=time.time() - start_time
+                processing_time=time.time() - start_time,
+                phone_number=analysis.get('phone_number', False)
             )
 
         except Exception as e:
@@ -275,6 +277,10 @@ class ImageProcessor:
                         analysis['store_image'] = analysis['store_image'].lower() in [
                             'true', 'yes', '1']
 
+                    # Extract phone number from business_contact
+                    analysis['phone_number'] = self._extract_phone_number(
+                        analysis.get('business_contact', ''))
+
                     return analysis
 
                 except json.JSONDecodeError:
@@ -292,6 +298,109 @@ class ImageProcessor:
         except Exception as e:
             logger.error(f"Error analyzing image with Gemini AI: {e}")
             raise
+
+    def _extract_phone_number(self, business_contact: str) -> bool:
+        """Extract phone number from business contact text using improved regex patterns"""
+        if not business_contact or business_contact.strip().upper() == 'N/A':
+            return False
+
+        import re
+
+        # Improved phone number patterns - more specific to avoid false positives
+        phone_patterns = [
+            # International formats with country codes: +1 123-456-7890, +91 9876543210
+            r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}',
+            # US/Canada phone numbers: (123) 456-7890, 123-456-7890, 123.456.7890, 1234567890
+            r'\b\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b',
+            # UK phone numbers: 07123456789, 01234567890 (landlines and mobiles)
+            # UK numbers start with 0 and are 10-11 digits total
+            r'\b0\d{9,10}\b',
+            # European formats: variations of XX XX XX XX XX
+            r'\b\d{2,4}[-.\s]\d{2,4}[-.\s]\d{2,4}[-.\s]\d{2,4}(?:[-.\s]\d{2,4})?\b',
+            # 10-digit mobile numbers without separators (common in some regions)
+            # Exactly 10 digits, not followed by more digits
+            r'\b\d{10}\b(?!\d)',
+            # 11-digit numbers (US with country code, some international)
+            r'\b\d{11}\b(?!\d)',  # Exactly 11 digits
+        ]
+
+        # Keywords that often precede phone numbers
+        phone_keywords = [
+            'phone', 'tel', 'telephone', 'call', 'contact', 'number', 'mobile', 'cell',
+            'ph', 'tél', 'téléphone', 'fono', 'telefono', '手', '机', '电', '话',
+            'contacto', 'numero', 'celular', 'móvil'
+        ]
+
+        # Keywords that suggest the number is NOT a phone number
+        non_phone_keywords = [
+            'invoice', 'account', 'id', 'order', 'reference', 'tracking', 'serial',
+            'receipt', 'transaction', 'policy', 'claim', 'ticket', 'booking',
+            'reservation', 'confirmation', 'code', 'pin', 'password', 'license'
+        ]
+
+        business_contact_lower = business_contact.lower()
+
+        # Check if any phone keywords are present
+        has_phone_keywords = any(
+            keyword in business_contact_lower for keyword in phone_keywords)
+
+        # Check if any non-phone keywords are present (strong negative signal)
+        has_non_phone_keywords = any(
+            keyword in business_contact_lower for keyword in non_phone_keywords)
+
+        # If we have non-phone keywords, be very conservative
+        if has_non_phone_keywords:
+            return False
+
+        # Check for phone number patterns
+        for pattern in phone_patterns:
+            if re.search(pattern, business_contact):
+                # Additional validation for plain digit sequences to avoid false positives
+                match = re.search(pattern, business_contact)
+                if match:
+                    phone_candidate = match.group(0)
+                    clean_digits = re.sub(r'[^\d]', '', phone_candidate)
+
+                    # For 10-digit numbers without separators, do additional validation
+                    if len(clean_digits) == 10 and not any(char in phone_candidate for char in ['(', ')', '-', '.', ' ', '+']):
+                        # Avoid numbers that look like dates (MMDDYY format)
+                        if re.match(r'^\d{2}\d{2}\d{4}$', phone_candidate):
+                            # Check if it looks like MM/DD/YYYY or similar date pattern
+                            if re.match(r'^(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{4}$', phone_candidate):
+                                return False  # Skip likely date patterns
+                        # Only reject very obvious test sequences, not valid-looking numbers
+                        if re.match(r'^(1111111111|2222222222|3333333333|4444444444|5555555555|6666666666|7777777777|8888888888|9999999999|0000000000|0123456789|9876543210)$', phone_candidate):
+                            return False  # Skip obvious test sequences
+                        # Allow sequential numbers like 1234567890 as they could be valid phone numbers
+                        return True  # Valid 10-digit number
+
+                # For 11-digit numbers, similar validation
+                elif len(clean_digits) == 11 and not any(char in phone_candidate for char in ['(', ')', '-', '.', ' ', '+']):
+                    # Avoid obvious test sequences for 11 digits
+                    if re.match(r'^(12345678901|09876543210|11111111111)$', phone_candidate):
+                        return False  # Reject test sequences
+
+                    return True  # Valid 11-digit number
+
+                # For other phone number formats that matched patterns, do basic validation
+                elif 7 <= len(clean_digits) <= 15:
+                    return True  # Valid phone number with separators or other formats
+        # Only return True if we find a pattern that looks very phone-like after a keyword
+        if has_phone_keywords:
+            # Look for patterns like "phone: 123-456-7890" or "call 1234567890"
+            keyword_pattern = r'(?:' + \
+                '|'.join(phone_keywords) + r')[:\s]*([^\s,]+)'
+            match = re.search(keyword_pattern, business_contact_lower)
+            if match:
+                potential_number = match.group(1)
+                # Check if the potential number contains mostly digits and phone separators
+                if re.match(r'^[\d\s\(\)\-\.\+]{7,}$', potential_number):
+                    clean_number = re.sub(r'[^\d]', '', potential_number)
+                    # Must be reasonable length for a phone number
+                    if 7 <= len(clean_number) <= 15:
+                        return True
+
+        return False
 
     def get_url_hash(self, url: str) -> str:
         """Generate hash for URL (for caching, non-security use)"""

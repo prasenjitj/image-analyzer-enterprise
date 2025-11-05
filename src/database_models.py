@@ -241,6 +241,7 @@ class URLAnalysisResult(Base):
     text_content = Column(Text, nullable=True)
     store_name = Column(String(255), nullable=True)
     business_contact = Column(Text, nullable=True)
+    phone_number = Column(Boolean, nullable=True)
     image_description = Column(Text, nullable=True)
 
     # Processing metadata
@@ -280,6 +281,7 @@ class URLAnalysisResult(Base):
             'text_content': self.text_content,
             'store_name': self.store_name,
             'business_contact': self.business_contact,
+            'phone_number': self.phone_number,
             'image_description': self.image_description,
             'success': self.success,
             'error_message': self.error_message,

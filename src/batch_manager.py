@@ -1332,6 +1332,7 @@ def _store_chunk_results_in_db(batch_id: str, chunk_id: str, results: List[Any])
                 url_result.text_content = analysis.get('text_content')
                 url_result.store_name = analysis.get('store_name')
                 url_result.business_contact = analysis.get('business_contact')
+                url_result.phone_number = analysis.get('phone_number', False)
                 url_result.image_description = analysis.get(
                     'image_description')
                 url_result.analysis_result = analysis

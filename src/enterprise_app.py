@@ -1577,14 +1577,15 @@ def create_enterprise_app():
     def api_get_batch_data():
         """API endpoint to get batch data with filtering, pagination, and sorting"""
         try:
-            from .database_models import URLAnalysisResult
-            from sqlalchemy import asc, desc, and_, String
+            from .database_models import URLAnalysisResult, db_manager
+            from sqlalchemy import asc, desc, and_, or_, String
 
             # Get query parameters
             page = request.args.get('page', 1, type=int)
             per_page = request.args.get('per_page', 25, type=int)
             store_image_filter = request.args.get('store_image', 'all')
             batch_id_filter = request.args.get('batch_id', '')
+            phone_number_filter = request.args.get('phone_number', '')
             sort_param = request.args.get('sort', 'created_at:desc')
 
             # Validate pagination
@@ -1622,6 +1623,15 @@ def create_enterprise_app():
                         filters.append(URLAnalysisResult.batch_id.cast(
                             String).ilike(f'%{batch_id_filter}%'))
 
+                # Phone number filter
+                if phone_number_filter == 'true':
+                    filters.append(
+                        URLAnalysisResult.business_contact.isnot(None))
+                    filters.append(URLAnalysisResult.business_contact != '')
+                elif phone_number_filter == 'false':
+                    filters.append(or_(URLAnalysisResult.business_contact.is_(None),
+                                       URLAnalysisResult.business_contact == ''))
+
                 # Apply all filters
                 if filters:
                     query = query.filter(and_(*filters))
@@ -1646,6 +1656,7 @@ def create_enterprise_app():
                         'text_content': result.text_content,
                         'store_name': result.store_name,
                         'business_contact': result.business_contact,
+                        'phone_number': bool(result.business_contact),
                         'image_description': result.image_description,
                         'url': result.url,
                         'processing_time_seconds': result.processing_time_seconds,
@@ -1681,19 +1692,30 @@ def create_enterprise_app():
             # Get query parameters (same as list endpoint)
             store_image_filter = request.args.get('store_image', 'all')
             batch_id_filter = request.args.get('batch_id', '')
+            phone_number_filter = request.args.get('phone_number', '')
 
             # Build query
             with db_manager.get_session() as session:
                 query = session.query(URLAnalysisResult)
+                from sqlalchemy import or_
 
                 # Apply filters
                 filters = []
 
                 # Store image filter
                 if store_image_filter == 'true':
-                    filters.append(URLAnalysisResult.store_image == True)
+                    filters.append(URLAnalysisResult.store_image.is_(True))
                 elif store_image_filter == 'false':
-                    filters.append(URLAnalysisResult.store_image == False)
+                    filters.append(URLAnalysisResult.store_image.is_(False))
+
+                # Phone number filter
+                if phone_number_filter == 'true':
+                    filters.append(
+                        URLAnalysisResult.business_contact.isnot(None))
+                    filters.append(URLAnalysisResult.business_contact != '')
+                elif phone_number_filter == 'false':
+                    filters.append(or_(URLAnalysisResult.business_contact.is_(
+                        None), URLAnalysisResult.business_contact == ''))
 
                 # Batch ID filter
                 if batch_id_filter:
@@ -1721,7 +1743,7 @@ def create_enterprise_app():
                 writer = csv.writer(csv_buffer)
 
                 # Write header
-                headers = ['store_front', 'text_content', 'store_name', 'business_contact',
+                headers = ['store_front', 'text_content', 'store_name', 'business_contact', 'phone_number',
                            'image_description', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
                 writer.writerow(headers)
 
@@ -1732,6 +1754,7 @@ def create_enterprise_app():
                         result.text_content or '',
                         result.store_name or '',
                         result.business_contact or '',
+                        'true' if result.phone_number else 'false',
                         result.image_description or '',
                         result.url or '',
                         result.processing_time_seconds or '',
