@@ -157,6 +157,7 @@ typescript
 .env
 .env.local
 .env.*.local
+.env.yaml
 .yml
 
 # Test data files
