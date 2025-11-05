@@ -273,7 +273,7 @@ class ExportManager:
 
         # CSV headers
         headers = [
-            'url', 'success', 'store_image', 'text_content', 'store_name',
+            'url', 'success', 'store_front', 'text_content', 'store_name',
             'business_contact', 'image_description', 'error_message',
             'processing_time_seconds', 'created_at', 'batch_id'
         ]
@@ -336,7 +336,7 @@ class ExportManager:
             data.append({
                 'URL': result.url,
                 'Success': 'Yes' if result.success else 'No',
-                'Store Image': 'Yes' if result.store_image else 'No',
+                'Store Front': 'Yes' if result.store_image else 'No',
                 'Text Content': result.text_content or '',
                 'Store Name': result.store_name or '',
                 'Business Contact': result.business_contact or '',
@@ -383,7 +383,7 @@ class ExportManager:
             csv_buffer = io.StringIO()
 
             headers = [
-                'url', 'success', 'store_image', 'text_content', 'store_name',
+                'url', 'success', 'store_front', 'text_content', 'store_name',
                 'business_contact', 'image_description', 'error_message',
                 'processing_time_seconds', 'created_at', 'batch_id'
             ]

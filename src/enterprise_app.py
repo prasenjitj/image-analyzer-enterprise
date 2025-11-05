@@ -528,7 +528,7 @@ def create_enterprise_app():
             header_used = False
             # Known CSV headers (keep in sync with ExportManager._generate_csv_data)
             csv_headers = [
-                'url', 'success', 'store_image', 'text_content', 'store_name',
+                'url', 'success', 'store_front', 'text_content', 'store_name',
                 'business_contact', 'image_description', 'error_message',
                 'processing_time_seconds', 'created_at', 'batch_id'
             ]
@@ -1738,7 +1738,7 @@ def create_enterprise_app():
                 writer = csv.writer(csv_buffer)
 
                 # Write header
-                headers = ['success', 'store_image', 'text_content', 'store_name', 'business_contact',
+                headers = ['success', 'store_front', 'text_content', 'store_name', 'business_contact',
                            'image_description', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
                 writer.writerow(headers)
 
