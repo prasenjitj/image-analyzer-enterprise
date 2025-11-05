@@ -1331,6 +1331,101 @@ def create_enterprise_app():
                 'timestamp': datetime.now().isoformat()
             })
 
+    @app.route('/admin/chunk-errors')
+    def admin_chunk_errors():
+        """Admin endpoint to fetch recent chunk error messages and related URL errors.
+
+        Query params:
+          - batch_id: optional batch id to filter
+          - chunk_id: optional chunk id to filter
+          - limit: max number of chunks to return (default 50)
+        """
+        try:
+            batch_id = request.args.get('batch_id')
+            chunk_id = request.args.get('chunk_id')
+            try:
+                limit = int(request.args.get('limit', 50))
+            except Exception:
+                limit = 50
+
+            from .database_models import ProcessingChunk, URLAnalysisResult, ChunkStatus
+            from sqlalchemy import or_, func
+
+            with db_manager.get_session() as session:
+                query = session.query(ProcessingChunk)
+
+                if batch_id:
+                    query = query.filter(ProcessingChunk.batch_id == batch_id)
+                if chunk_id:
+                    query = query.filter(ProcessingChunk.chunk_id == chunk_id)
+
+                # Focus on chunks that have an error message or are marked FAILED
+                query = query.filter(or_(ProcessingChunk.error_message.isnot(
+                    None), ProcessingChunk.status == ChunkStatus.FAILED))
+
+                # Order by the most-recent timestamp available for the chunk
+                # (ProcessingChunk doesn't have an `updated_at` or `created_at` field).
+                # Use SQL's greatest() across completed_at, started_at, queued_at.
+                query = query.order_by(func.greatest(
+                    ProcessingChunk.completed_at,
+                    ProcessingChunk.started_at,
+                    ProcessingChunk.queued_at
+                ).desc()).limit(limit)
+
+                chunks = query.all()
+
+                chunk_ids = [c.chunk_id for c in chunks]
+
+                url_errors = {}
+                if chunk_ids:
+                    url_query = session.query(URLAnalysisResult).filter(
+                        URLAnalysisResult.chunk_id.in_(chunk_ids),
+                        URLAnalysisResult.error_message.isnot(None)
+                    ).order_by(URLAnalysisResult.created_at.desc()).limit(500)
+
+                    url_results = url_query.all()
+
+                    for r in url_results:
+                        url_errors.setdefault(r.chunk_id, []).append({
+                            'id': getattr(r, 'id', None),
+                            'url': r.url,
+                            'error_message': r.error_message,
+                            'created_at': r.created_at.isoformat() if r.created_at else None
+                        })
+
+                # Serialize chunks
+                serialized_chunks = []
+                for c in chunks:
+                    serialized_chunks.append({
+                        'chunk_id': c.chunk_id,
+                        'batch_id': c.batch_id,
+                        'status': c.status.value if hasattr(c.status, 'value') else str(c.status),
+                        'error_message': c.error_message,
+                        'started_at': c.started_at.isoformat() if getattr(c, 'started_at', None) else None,
+                        'completed_at': c.completed_at.isoformat() if getattr(c, 'completed_at', None) else None,
+                        'processed_count': getattr(c, 'processed_count', None),
+                        'successful_count': getattr(c, 'successful_count', None),
+                        'failed_count': getattr(c, 'failed_count', None)
+                    })
+
+                logger.info(
+                    f"Admin chunk-errors requested: batch_id={batch_id} chunk_id={chunk_id} returned_chunks={len(serialized_chunks)} url_errors={sum(len(v) for v in url_errors.values())}")
+
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'chunks': serialized_chunks,
+                        'url_errors': url_errors
+                    }
+                })
+
+        except Exception as e:
+            logger.error(f"Error in admin_chunk_errors: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
     # API endpoints
     @app.route('/api/v1/batches')
     def api_list_batches():
