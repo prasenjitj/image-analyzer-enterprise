@@ -258,7 +258,7 @@ class URLAnalysisResult(Base):
 
     # Cache information
     cache_hit = Column(Boolean, default=False)
-    gemini_model_used = Column(String(50), nullable=True)
+    ocr_engine_used = Column(String(50), nullable=True)
 
     # Indexes for performance
     __table_args__ = (
@@ -289,7 +289,7 @@ class URLAnalysisResult(Base):
             'api_key_used': self.api_key_used,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'cache_hit': self.cache_hit,
-            'gemini_model_used': self.gemini_model_used
+            'ocr_engine_used': self.ocr_engine_used
         }
 
 

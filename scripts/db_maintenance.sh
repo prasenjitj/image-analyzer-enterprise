@@ -2,6 +2,26 @@
 # Database maintenance script using direct SQL operations
 # Alternative to Python script for environments with dependency issues
 
+# Usage: ./db_maintenance.sh <command> [options]
+#
+# Commands:
+#   stats                    Show database statistics
+#   clear-old [days]         Clear batches older than N days (default: 30)
+#   clear-failed             Clear failed/cancelled batches
+#   clear-all                Clear ALL data (dangerous!)
+#   optimize                 Run database optimization (VACUUM, ANALYZE)
+#   backup [dir]             Create database backup (default: ./backups)
+#   help                     Show this help message
+#
+# Examples:
+#   ./db_maintenance.sh stats
+#   ./db_maintenance.sh clear-old 90
+#   ./db_maintenance.sh backup /mnt/backups
+#
+# Environment variables:
+#   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+#
+
 set -e  # Exit on any error
 
 # Configuration - update these variables

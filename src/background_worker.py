@@ -1,7 +1,7 @@
 """
 Background worker process for enterprise image processing
 
-Handles chunk processing through the job queue system with Gemini AI integration,
+Handles chunk processing through the job queue system with OCR integration,
 progress tracking, retry logic, and error handling.
 """
 import asyncio

@@ -614,24 +614,12 @@ class BatchManager:
     def get_batch_details(self, batch_id: str) -> Dict[str, Any]:
         """Get detailed batch information"""
         try:
-            # Convert string batch_id to UUID for database query
-            try:
-                batch_uuid = uuid.UUID(batch_id) if isinstance(
-                    batch_id, str) else batch_id
-            except (ValueError, AttributeError):
-                logger.warning(f"Invalid batch_id format: {batch_id}")
-                return None
-
             with db_manager.get_session() as session:
-                batch = session.query(ProcessingBatch).filter_by(
-                    batch_id=batch_uuid).first()
-
-                if not batch:
-                    return None
+                batch = self._validate_batch_exists(session, batch_id)
 
                 # Get chunk statistics
                 chunks = session.query(ProcessingChunk).filter_by(
-                    batch_id=batch_uuid).all()
+                    batch_id=batch.batch_id).all()
                 chunk_stats = {
                     'total': len(chunks),
                     'completed': len([c for c in chunks if c.status == ChunkStatus.COMPLETED]),
@@ -641,7 +629,7 @@ class BatchManager:
 
                 # Get recent results
                 recent_results = session.query(URLAnalysisResult).filter_by(
-                    batch_id=batch_uuid
+                    batch_id=batch.batch_id
                 ).order_by(URLAnalysisResult.result_id.desc()).limit(10).all()
 
                 return {
@@ -962,11 +950,21 @@ class BatchManager:
             'pending': 0,
             'processing': 0,
             'completed': 0,
-            'failed': 0
+            'failed': 0,
+            'retrying': 0
         }
 
         for chunk in chunks:
-            stats[chunk.status.value] += 1
+            status_value = chunk.status.value
+            # Safely increment status count, defaulting to 0 for unknown statuses
+            if status_value in stats:
+                stats[status_value] += 1
+            else:
+                # Log unknown status but don't crash
+                logger.warning(
+                    f"Unknown chunk status encountered: {status_value}")
+                # Create a new entry for this status
+                stats[status_value] = 1
 
         return stats
 
@@ -1322,7 +1320,8 @@ def _store_chunk_results_in_db(batch_id: str, chunk_id: str, results: List[Any])
                 error_message=result.error if not result.success else None,
                 processing_time_seconds=getattr(
                     result, 'processing_time', 0.0),
-                cache_hit=getattr(result, 'cache_hit', False)
+                cache_hit=getattr(result, 'cache_hit', False),
+                ocr_engine_used=getattr(result, 'ocr_engine_used', None)
             )
 
             # Add analysis data if successful
@@ -1743,7 +1742,9 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                         error_message=result.get('error'),
                         processing_time_seconds=result.get(
                             'processing_time', 0.0),
-                        cache_hit=result.get('cache_hit', False)
+                        cache_hit=result.get('cache_hit', False),
+                        ocr_engine_used=getattr(
+                            processing_result, 'ocr_engine_used', None) if 'processing_result' in locals() else None
                     )
 
                     # Add analysis data if successful
@@ -1784,7 +1785,8 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                         success=False,
                         error_message=str(e),
                         processing_time_seconds=0.0,
-                        cache_hit=False
+                        cache_hit=False,
+                        ocr_engine_used=None
                     )
                     session.add(analysis_result)
                     failed_count += 1
