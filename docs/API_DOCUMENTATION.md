@@ -586,6 +586,59 @@ Export results for a specific batch with filtering options.
 }
 ```
 
+### Admin: Fetch Recent Chunk Errors
+
+A new administrative endpoint provides quick access to recent chunk-level error messages and related per-URL errors to aid diagnosis.
+
+**Endpoint**: `GET /admin/chunk-errors`
+
+**Query Parameters**:
+- `batch_id` (optional): Filter results to a specific batch ID.
+- `chunk_id` (optional): Filter results to a specific chunk ID.
+- `limit` (optional): Maximum number of chunks to return (default: 50).
+
+**Behavior**:
+- Returns chunks that either have an `error_message` set or are marked `FAILED`, ordered by most recently updated.
+- For the returned chunks the endpoint also returns recent `URLAnalysisResult` rows that have `error_message` populated (up to 500 rows total).
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "chunks": [
+      {
+        "chunk_id": "...",
+        "batch_id": "...",
+        "status": "FAILED",
+        "error_message": "Chunk processing failed due to timeout",
+        "started_at": "2025-11-02T10:30:15Z",
+        "completed_at": null,
+        "updated_at": "2025-11-02T10:45:00Z",
+        "processed_count": 1000,
+        "successful_count": 950,
+        "failed_count": 50
+      }
+    ],
+    "url_errors": {
+      "456e7890-e89b-12d3-a456-426614174001": [
+        {
+          "id": 123,
+          "url": "https://example.com/image1.jpg",
+          "error_message": "Connection timed out",
+          "created_at": "2025-11-02T10:31:00Z"
+        }
+      ]
+    }
+  }
+}
+```
+
+**Notes**:
+- This endpoint is intended for operators and administrators to rapidly inspect recent failures and their underlying per-URL error messages.
+- The endpoint logs a summary message for each request indicating how many chunks and URL errors were returned.
+
+
 #### Clean Up Queue
 **Endpoint**: `POST /admin/queue/cleanup`
 
@@ -708,6 +761,17 @@ Download CSV import template.
   "gemini_model_used": "string"
 }
 ```
+
+## Processing behavior changes (logging & inference)
+
+This release introduced two small but important behavior updates to improve diagnostics and reduce blank/`—` values in the UI for `store_front` (internally `store_image`):
+
+- Store Front determination: `store_image` (displayed as "Store Front" in exports) is now set to `true` if and only if the LLM provides valid text for a store name. This ensures consistency - a store image is identified only when an actual store name is detected, eliminating false positives from ambiguous image analysis.
+
+- Recommendation logs for chunk failures: When a chunk completes with failed rows (failed_count &gt; 0) the worker now emits a WARNING recommending operators check `ProcessingChunk.error_message` and individual `URLAnalysisResult.error_message` fields. If chunk processing fails due to an exception the worker emits an ERROR with the exception text and the same recommendation. These log lines aid operators in quickly locating root causes in the database.
+
+If you prefer stricter behavior (never infer `store_image`), we can revert the inference and instead expose an extra UI column showing whether a `store_name` is present.
+
 
 ## Error Handling
 

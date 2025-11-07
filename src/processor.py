@@ -1,15 +1,17 @@
 """
-Image processing module using Gemini AI for enterprise batch processing
+Image processing module using OCR for enterprise batch processing
 """
 import asyncio
 import aiohttp
 import logging
 import time
 import hashlib
+import os
+import tempfile
+import re
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
-import google.generativeai as genai
 from PIL import Image
 import io
 import requests
@@ -29,10 +31,11 @@ class ProcessingResult:
     processing_time: float = 0.0
     cache_hit: bool = False
     phone_number: bool = False
+    ocr_engine_used: Optional[str] = None
 
 
 class ImageProcessor:
-    """Enterprise image processor using Gemini AI"""
+    """Enterprise image processor using OCR"""
 
     def __init__(self, api_keys: List[str] = None, max_workers: int = 10,
                  image_max_size: int = 2048):
@@ -42,16 +45,8 @@ class ImageProcessor:
         self.current_api_key_index = 0
         self.session: Optional[aiohttp.ClientSession] = None
 
-        # Configure Gemini AI with the first API key
-        if self.api_keys:
-            genai.configure(api_key=self.api_keys[0])
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
-        else:
-            logger.warning("No API keys provided for ImageProcessor")
-            self.model = None
-
         logger.info(
-            f"ImageProcessor initialized with {len(self.api_keys)} API keys")
+            f"ImageProcessor initialized with OCR processing")
 
     def start_processing(self):
         """Initialize processing session"""
@@ -70,10 +65,9 @@ class ImageProcessor:
             self.session = None
 
     def get_next_api_key(self) -> str:
-        """Get next API key (round-robin)"""
+        """Get next API key (round-robin) - kept for compatibility"""
         if not self.api_keys:
-            raise ValueError("No API keys available")
-
+            return ""
         api_key = self.api_keys[self.current_api_key_index]
         self.current_api_key_index = (
             self.current_api_key_index + 1) % len(self.api_keys)
@@ -126,15 +120,16 @@ class ImageProcessor:
                     processing_time=time.time() - start_time
                 )
 
-            # Process image with Gemini AI
-            analysis = await self._analyze_image(image_data)
+            # Process image with OCR
+            analysis, ocr_engine = await self._analyze_image(image_data)
 
             return ProcessingResult(
                 url=url,
                 success=True,
                 analysis=analysis,
                 processing_time=time.time() - start_time,
-                phone_number=analysis.get('phone_number', False)
+                phone_number=analysis.get('phone_number', False),
+                ocr_engine_used=ocr_engine
             )
 
         except Exception as e:
@@ -210,197 +205,359 @@ class ImageProcessor:
             return image_data
 
     async def _analyze_image(self, image_data: bytes) -> Dict[str, Any]:
-        """Analyze image using Gemini AI"""
-        if not self.model:
-            raise ValueError("Gemini AI model not initialized")
+        """Analyze image using OCR"""
+        # Save image data to temporary file for OCR processing
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+            temp_file.write(image_data)
+            temp_path = temp_file.name
 
         try:
-            # Prepare image for Gemini
-            image = Image.open(io.BytesIO(image_data))
-
-            # Create prompt for store image analysis
-            prompt = """
-            Analyze this image and determine if it shows a physical store or business location. 
-            
-            Please provide a JSON response with the following structure:
-            {
-                "store_image": true/false,
-                "text_content": "any visible text in the image",
-                "store_name": "name of the store if visible",
-                "business_contact": "phone number, email, or website if visible",
-                "image_description": "brief description of what the image shows"
-            }
-            
-            Guidelines:
-            - store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment
-            - Extract any visible text including store names, signs, phone numbers, websites
-            - Be concise but accurate in descriptions
-            - If uncertain about store_image, err on the side of false
-            """
-
-            # Generate content with current API key
-            api_key = self.get_next_api_key()
-            genai.configure(api_key=api_key)
-
-            # Use ThreadPoolExecutor for the blocking Gemini API call
+            # Use ThreadPoolExecutor for the blocking OCR operations
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor() as executor:
-                response = await loop.run_in_executor(
+                result = await loop.run_in_executor(
                     executor,
-                    lambda: self.model.generate_content([prompt, image])
+                    lambda: self._process_image_ocr(temp_path)
                 )
 
-            # Parse response
-            if response and response.text:
-                # Try to extract JSON from response
-                response_text = response.text.strip()
+            # Convert result to expected format
+            analysis = {
+                'store_image': result['store_image'] == 'Yes',
+                'text_content': result['text_content'],
+                'store_name': result['store_name'],
+                'business_contact': result['business_contact'],
+                'image_description': result['image_description'],
+                # Set based on whether phones were found
+                'phone_number': bool(result['business_contact'])
+            }
 
-                # Remove markdown code blocks if present
-                if response_text.startswith('```json'):
-                    response_text = response_text[7:]
-                if response_text.endswith('```'):
-                    response_text = response_text[:-3]
+            return analysis, "easyocr+pytesseract"
 
-                try:
-                    import json
-                    analysis = json.loads(response_text)
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
 
-                    # Validate required fields
-                    required_fields = ['store_image', 'text_content', 'store_name',
-                                       'business_contact', 'image_description']
-                    for field in required_fields:
-                        if field not in analysis:
-                            analysis[field] = None
+    def _detect_compute_device(self):
+        """Return compute device string: 'cuda', 'mps', or 'cpu' and a gpu boolean usable for EasyOCR."""
+        try:
+            import torch
+        except Exception:
+            return 'cpu', False
+        try:
+            if getattr(torch, 'cuda', None) and torch.cuda.is_available():
+                return 'cuda', True
+            # macOS MPS support
+            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                return 'mps', True
+        except Exception:
+            pass
+        return 'cpu', False
 
-                    # Ensure store_image is boolean
-                    if isinstance(analysis['store_image'], str):
-                        analysis['store_image'] = analysis['store_image'].lower() in [
-                            'true', 'yes', '1']
-
-                    # Extract phone number from business_contact
-                    analysis['phone_number'] = self._extract_phone_number(
-                        analysis.get('business_contact', ''))
-
-                    return analysis
-
-                except json.JSONDecodeError:
-                    # If JSON parsing fails, create structured response from text
-                    return {
-                        'store_image': False,
-                        'text_content': response_text,
-                        'store_name': None,
-                        'business_contact': None,
-                        'image_description': response_text[:200]
-                    }
+    def _run_easyocr(self, img_path, langs=None):
+        try:
+            import easyocr
+        except Exception:
+            return None
+        # Normalize langs: accept comma-separated string, list/tuple, or None
+        if langs is None:
+            langs_list = [
+                # Removed unsupported: 'ml', 'gu', 'pa', 'or', 'ta', 'te', 'bn', 'kn', 'mr'
+                'en', 'hi',
+            ]
+        else:
+            if isinstance(langs, str):
+                parts = [p.strip() for p in langs.split(',') if p.strip()]
+                langs_list = parts if parts else ['en']
+            elif isinstance(langs, (list, tuple)):
+                langs_list = list(langs)
             else:
-                raise ValueError("Empty response from Gemini AI")
+                langs_list = ['en']
 
+        # Detect compute device and pass gpu flag to EasyOCR when available
+        device, gpu_available = self._detect_compute_device()
+
+        # Create reader, be defensive: some installs of EasyOCR don't support every lang code
+        try:
+            reader = easyocr.Reader(langs_list, gpu=gpu_available)
         except Exception as e:
-            logger.error(f"Error analyzing image with Gemini AI: {e}")
-            raise
+            # Better parsing: detect which of the requested lang codes are mentioned as unsupported
+            try:
+                msg = str(e)
+                unsupported = set()
+                # 1) look for set/list literals like {'ml', 'gu'} or ['ml','gu']
+                m = re.search(r"\{([^}]*)\}", msg)
+                if m:
+                    codes = re.findall(r"[A-Za-z0-9_]+", m.group(1))
+                    unsupported.update(codes)
+                m2 = re.search(r"\[([^]]*)\]", msg)
+                if m2:
+                    codes2 = re.findall(r"[A-Za-z0-9_]+", m2.group(1))
+                    unsupported.update(codes2)
+                # 2) also check for occurrences of requested codes as whole words in the message
+                for code in langs_list:
+                    if re.search(r"\b" + re.escape(code) + r"\b", msg):
+                        unsupported.add(code)
+                # 3) filter to only those that were requested (avoid accidental matches)
+                unsupported = set([c for c in unsupported if c in langs_list])
+                filtered = [l for l in langs_list if l not in unsupported]
+                if filtered:
+                    try:
+                        reader = easyocr.Reader(filtered, gpu=gpu_available)
+                    except Exception:
+                        reader = None
+                else:
+                    reader = None
+            except Exception:
+                reader = None
 
-    def _extract_phone_number(self, business_contact: str) -> bool:
-        """Extract phone number from business contact text using improved regex patterns"""
-        if not business_contact or business_contact.strip().upper() == 'N/A':
+            if reader is None:
+                # Log the error and retry with English-only to avoid crashing
+                try:
+                    reader = easyocr.Reader(['en'], gpu=gpu_available)
+                except Exception:
+                    return None
+
+        results = reader.readtext(img_path, detail=1)
+
+        # results is list of (bbox, text, conf)
+        entries = []
+        for bbox, text, conf in results:
+            if not text or not text.strip():
+                continue
+            xs = [p[0] for p in bbox]
+            ys = [p[1] for p in bbox]
+            x, y, x2, y2 = int(min(xs)), int(
+                min(ys)), int(max(xs)), int(max(ys))
+            entries.append({
+                'text': text.strip(),
+                'conf': float(conf) if conf is not None else None,
+                'bbox': (x, y, x2 - x, y2 - y),  # x, y, w, h
+            })
+        return entries
+
+    def _run_pytesseract(self, img_path, langs=None):
+        try:
+            import pytesseract
+        except Exception:
+            return []
+        from PIL import Image
+        from pytesseract import Output
+        img = Image.open(img_path)
+        try:
+            # If langs provided, convert comma-separated to Tesseract format e.g. 'hin,eng' -> 'hin+eng'
+            tess_lang = None
+            if langs:
+                if isinstance(langs, str):
+                    parts = [p.strip() for p in langs.split(',') if p.strip()]
+                    if parts:
+                        tess_lang = '+'.join(parts)
+            if tess_lang:
+                data = pytesseract.image_to_data(
+                    img, output_type=Output.DICT, lang=tess_lang)
+            else:
+                data = pytesseract.image_to_data(img, output_type=Output.DICT)
+        except Exception:
+            # fallback to simple string
+            txt = pytesseract.image_to_string(img)
+            lines = [l.strip() for l in txt.splitlines() if l.strip()]
+            return [{'text': t, 'conf': None, 'bbox': (0, 0, img.width, 0)} for t in lines]
+        entries = []
+        n = len(data.get('text', []))
+        for i in range(n):
+            txt = data['text'][i].strip()
+            if not txt:
+                continue
+            x = int(data['left'][i])
+            y = int(data['top'][i])
+            w = int(data['width'][i])
+            h = int(data['height'][i])
+            conf = None
+            try:
+                conf = float(data.get('conf', [None] * n)[i])
+            except Exception:
+                conf = None
+            entries.append({'text': txt, 'conf': conf, 'bbox': (x, y, w, h)})
+        return entries
+
+    def _extract_phone_numbers(self, texts):
+        # Join texts and search for phone patterns (Indian formats too)
+        joined = "\n".join(texts)
+        phones = set()
+        # Common patterns
+        patterns = [
+            r"\+91[-\s]?\d{10}",
+            r"0\d{10}",
+            r"\b\d{10}\b",
+            r"\b\d{5}[-\s]?\d{5}\b",
+            r"\b\d{3}[-\s]?\d{3}[-\s]?\d{4}\b",
+        ]
+        for pat in patterns:
+            for m in re.findall(pat, joined):
+                phones.add(m)
+        # Also capture spaced digits (e.g., 9 3 2 3 6 6 8 6 6 6)
+        spaced = re.findall(r"(?:\+91[-\s]?|0)?(?:\d[\s-]){9}\d", joined)
+        for s in spaced:
+            phones.add(re.sub(r"[\s-]", '', s))
+        return list(phones)
+
+    def _rank_entries(self, entries, image_height):
+        # compute a simple score: area * top_bias where top_bias favours text nearer top
+        scored = []
+        for e in entries:
+            x, y, w, h = e.get('bbox', (0, 0, 0, 0))
+            area = max(1, w * h)
+            # vertical center relative (0 top, 1 bottom)
+            vcenter = (y + h / 2) / max(1, image_height)
+            top_bias = 1.0 + (1.0 - vcenter)  # closer to top -> higher
+            score = area * top_bias
+            scored.append((score, e))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
+    def _detect_sign_area(self, img_path):
+        # Very simple heuristic: look for large rectangular bright/dark region that could be a sign.
+        try:
+            import cv2
+            import numpy as np
+        except Exception:
             return False
-
-        import re
-
-        # Improved phone number patterns - more specific to avoid false positives
-        phone_patterns = [
-            # International formats with country codes: +1 123-456-7890, +91 9876543210
-            r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}',
-            # US/Canada phone numbers: (123) 456-7890, 123-456-7890, 123.456.7890, 1234567890
-            r'\b\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b',
-            # UK phone numbers: 07123456789, 01234567890 (landlines and mobiles)
-            # UK numbers start with 0 and are 10-11 digits total
-            r'\b0\d{9,10}\b',
-            # European formats: variations of XX XX XX XX XX
-            r'\b\d{2,4}[-.\s]\d{2,4}[-.\s]\d{2,4}[-.\s]\d{2,4}(?:[-.\s]\d{2,4})?\b',
-            # 10-digit mobile numbers without separators (common in some regions)
-            # Exactly 10 digits, not followed by more digits
-            r'\b\d{10}\b(?!\d)',
-            # 11-digit numbers (US with country code, some international)
-            r'\b\d{11}\b(?!\d)',  # Exactly 11 digits
-        ]
-
-        # Keywords that often precede phone numbers
-        phone_keywords = [
-            'phone', 'tel', 'telephone', 'call', 'contact', 'number', 'mobile', 'cell',
-            'ph', 'tél', 'téléphone', 'fono', 'telefono', '手', '机', '电', '话',
-            'contacto', 'numero', 'celular', 'móvil'
-        ]
-
-        # Keywords that suggest the number is NOT a phone number
-        non_phone_keywords = [
-            'invoice', 'account', 'id', 'order', 'reference', 'tracking', 'serial',
-            'receipt', 'transaction', 'policy', 'claim', 'ticket', 'booking',
-            'reservation', 'confirmation', 'code', 'pin', 'password', 'license'
-        ]
-
-        business_contact_lower = business_contact.lower()
-
-        # Check if any phone keywords are present
-        has_phone_keywords = any(
-            keyword in business_contact_lower for keyword in phone_keywords)
-
-        # Check if any non-phone keywords are present (strong negative signal)
-        has_non_phone_keywords = any(
-            keyword in business_contact_lower for keyword in non_phone_keywords)
-
-        # If we have non-phone keywords, be very conservative
-        if has_non_phone_keywords:
+        img = cv2.imread(img_path)
+        if img is None:
             return False
-
-        # Check for phone number patterns
-        for pattern in phone_patterns:
-            if re.search(pattern, business_contact):
-                # Additional validation for plain digit sequences to avoid false positives
-                match = re.search(pattern, business_contact)
-                if match:
-                    phone_candidate = match.group(0)
-                    clean_digits = re.sub(r'[^\d]', '', phone_candidate)
-
-                    # For 10-digit numbers without separators, do additional validation
-                    if len(clean_digits) == 10 and not any(char in phone_candidate for char in ['(', ')', '-', '.', ' ', '+']):
-                        # Avoid numbers that look like dates (MMDDYY format)
-                        if re.match(r'^\d{2}\d{2}\d{4}$', phone_candidate):
-                            # Check if it looks like MM/DD/YYYY or similar date pattern
-                            if re.match(r'^(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{4}$', phone_candidate):
-                                return False  # Skip likely date patterns
-                        # Only reject very obvious test sequences, not valid-looking numbers
-                        if re.match(r'^(1111111111|2222222222|3333333333|4444444444|5555555555|6666666666|7777777777|8888888888|9999999999|0000000000|0123456789|9876543210)$', phone_candidate):
-                            return False  # Skip obvious test sequences
-                        # Allow sequential numbers like 1234567890 as they could be valid phone numbers
-                        return True  # Valid 10-digit number
-
-                # For 11-digit numbers, similar validation
-                elif len(clean_digits) == 11 and not any(char in phone_candidate for char in ['(', ')', '-', '.', ' ', '+']):
-                    # Avoid obvious test sequences for 11 digits
-                    if re.match(r'^(12345678901|09876543210|11111111111)$', phone_candidate):
-                        return False  # Reject test sequences
-
-                    return True  # Valid 11-digit number
-
-                # For other phone number formats that matched patterns, do basic validation
-                elif 7 <= len(clean_digits) <= 15:
-                    return True  # Valid phone number with separators or other formats
-        # Only return True if we find a pattern that looks very phone-like after a keyword
-        if has_phone_keywords:
-            # Look for patterns like "phone: 123-456-7890" or "call 1234567890"
-            keyword_pattern = r'(?:' + \
-                '|'.join(phone_keywords) + r')[:\s]*([^\s,]+)'
-            match = re.search(keyword_pattern, business_contact_lower)
-            if match:
-                potential_number = match.group(1)
-                # Check if the potential number contains mostly digits and phone separators
-                if re.match(r'^[\d\s\(\)\-\.\+]{7,}$', potential_number):
-                    clean_number = re.sub(r'[^\d]', '', potential_number)
-                    # Must be reasonable length for a phone number
-                    if 7 <= len(clean_number) <= 15:
-                        return True
-
+        h, w = img.shape[:2]
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # use morphological operations to find rectangular regions
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, thresh = cv2.threshold(
+            blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 5))
+        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(
+            closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            x, y, cw, ch = cv2.boundingRect(cnt)
+            area = cw * ch
+            if area > 0.01 * (w * h):
+                aspect = cw / max(ch, 1)
+                if 1.5 < aspect < 15:  # wide rectangular sign
+                    return True
         return False
+
+    def _choose_store_name_from_entries(self, entries, image_height):
+        if not entries:
+            return ""
+        keywords = [
+            'hotel', 'restaurant', 'dhaba', 'store', 'shop', 'mart', 'salon', 'bakery',
+            'cafe', 'clinic', 'emporium', 'bazar', 'bazaar', 'electronics', 'mobile', 'phon', 'kj'
+        ]
+        scored = self._rank_entries(entries, image_height)
+        for score, e in scored:
+            txt = e['text'].strip()
+            lower = txt.lower()
+            for kw in keywords:
+                if kw in lower:
+                    cleaned = re.sub(r'\b(pvt\.?|ltd\.?|private|limited)\b',
+                                     '', txt, flags=re.I).strip(' -,.')
+                    return cleaned
+        best = None
+        best_score = -1.0
+        for score, e in scored:
+            txt = e['text'].strip()
+            if not txt or re.fullmatch(r'[\d\W]+', txt) or len(txt) < 2:
+                continue
+            digits = sum(1 for c in txt if c.isdigit())
+            alpha = sum(1 for c in txt if c.isalpha() or ord(c) > 127)
+            if alpha < 2:
+                continue
+            ratio = alpha / max(1, alpha + digits)
+            cur_score = score * (0.6 + 0.4 * ratio) + alpha * 2
+            if cur_score > best_score:
+                best_score = cur_score
+                best = txt
+        if best:
+            cleaned = re.sub(r'\b(pvt\.?|ltd\.?|private|limited)\b',
+                             '', best, flags=re.I).strip(' -,.')
+            return cleaned
+        for e in entries:
+            t = e['text'].strip()
+            if any(c.isalpha() or ord(c) > 127 for c in t):
+                return t
+        return ""
+
+    def _build_image_description(self, texts, store_name):
+        # concise description up to 50 words
+        if store_name:
+            desc = f"Signage showing '{store_name}' with visible text and storefront elements."
+        elif texts:
+            desc = f"Storefront with visible signage and text: {texts[0]}"
+        else:
+            desc = "Image of a storefront or street scene; signage and text may be present."
+        # limit to 50 words
+        words = desc.split()
+        return " ".join(words[:50])
+
+    def _process_image_ocr(self, img_path, langs=None, tess_langs=None):
+        if not os.path.exists(img_path):
+            return {
+                "store_image": "No",
+                "text_content": [],
+                "store_name": "",
+                "business_contact": [],
+                "image_description": ""
+            }
+
+        # load image height for ranking heuristics
+        try:
+            pil_img = Image.open(img_path)
+            img_h = pil_img.height
+        except Exception:
+            img_h = 1000
+
+        # Try EasyOCR first (returns entries with bbox), fallback to pytesseract entries
+        ocr_entries = self._run_easyocr(img_path, langs=langs)
+        if not ocr_entries:
+            ocr_entries = self._run_pytesseract(img_path, langs=tess_langs)
+
+        texts_u = []
+        if ocr_entries:
+            # sort entries by y (top->bottom) then x (left->right) to create reading order
+            sorted_entries = sorted(ocr_entries, key=lambda e: (
+                e.get('bbox', (0, 0, 0, 0))[1], e.get('bbox', (0, 0, 0, 0))[0]))
+            seen = set()
+            for e in sorted_entries:
+                t = e.get('text', '').strip()
+                if t and t not in seen:
+                    seen.add(t)
+                    texts_u.append(t)
+
+        phones = self._extract_phone_numbers(texts_u)
+
+        # determine if store
+        store_yes = False
+        store_name = ""
+        if ocr_entries:
+            store_name = self._choose_store_name_from_entries(
+                ocr_entries, img_h)
+        if store_name or phones:
+            store_yes = True
+        try:
+            if self._detect_sign_area(img_path):
+                store_yes = True
+        except Exception:
+            pass
+
+        desc = self._build_image_description(texts_u, store_name)
+
+        return {
+            "store_image": "Yes" if store_yes else "No",
+            "text_content": texts_u,
+            "store_name": store_name,
+            "business_contact": phones,
+            "image_description": desc
+        }
 
     def get_url_hash(self, url: str) -> str:
         """Generate hash for URL (for caching, non-security use)"""

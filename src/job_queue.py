@@ -144,8 +144,27 @@ class JobQueue:
     def dequeue_job(self, worker_id: str) -> Optional[Job]:
         """Get next job from queue"""
         if self.redis_client:
-            # Get highest priority job
+            # First try to get a job from the main queue
             result = self.redis_client.zpopmax(self.queue_name)
+            if not result:
+                # No jobs in main queue, check retry queue for ready jobs
+                retry_queue = f"{self.queue_name}:retry"
+                current_time = time.time()
+
+                # Get jobs that are ready for retry (score <= current_time)
+                ready_jobs = self.redis_client.zrangebyscore(
+                    retry_queue, '-inf', current_time, start=0, num=1, withscores=True
+                )
+
+                if ready_jobs:
+                    job_id = ready_jobs[0][0]
+                    # Remove from retry queue
+                    self.redis_client.zrem(retry_queue, job_id)
+                    # Add back to main queue with normal priority
+                    self.redis_client.zadd(self.queue_name, {job_id: 0})
+                    # Now get it from main queue
+                    result = self.redis_client.zpopmax(self.queue_name)
+
             if not result:
                 return None
 
@@ -421,7 +440,7 @@ def start_background_workers(num_workers: int = None) -> List[BackgroundWorker]:
         # Register job handlers (these would be imported from other modules)
         try:
             from .batch_manager import process_chunk_handler, finalize_batch_handler
-            worker.register_handler('process_chunk', process_chunk_handler)
+            worker.register_handler('chunk_processing', process_chunk_handler)
             worker.register_handler('finalize_batch', finalize_batch_handler)
         except ImportError:
             logger.warning("Batch processing handlers not available")

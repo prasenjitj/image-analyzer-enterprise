@@ -4,8 +4,11 @@
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 
-# Google AI dependency (critical)
-google-generativeai>=0.3.0
+# OCR dependencies for image text extraction
+easyocr>=1.7.0
+pytesseract>=0.3.10
+opencv-python>=4.8.0
+numpy>=1.24.0
 
 # Enterprise Database (PostgreSQL)
 SQLAlchemy>=2.0.0

@@ -8,6 +8,7 @@ This script helps set up the enterprise infrastructure including:
 - Dependency installation
 - Environment validation
 """
+from sqlalchemy import create_engine, text
 import os
 import sys
 import subprocess
@@ -24,6 +25,8 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Import sqlalchemy for database operations
 
 
 class EnterpriseSetup:
@@ -162,11 +165,73 @@ class EnterpriseSetup:
             # Create database tables
             db_manager.create_tables()
 
+            # Run migrations for existing tables
+            self.run_database_migrations()
+
             logger.info("✓ Database schema initialized")
             return True
 
         except Exception as e:
             logger.error(f"❌ Database initialization failed: {e}")
+            return False
+
+    def run_database_migrations(self):
+        """Run database migrations for existing tables"""
+        logger.info("Running database migrations...")
+
+        try:
+            from src.enterprise_config import config
+
+            # Get database connection
+            db_config = config.get_database_config()
+            engine = create_engine(**db_config)
+
+            with engine.connect() as conn:
+                # Check if phone_number column exists in url_analysis_results
+                result = conn.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'url_analysis_results' 
+                    AND column_name = 'phone_number'
+                """))
+
+                if not result.fetchone():
+                    logger.info(
+                        "Adding missing phone_number column to url_analysis_results table...")
+                    conn.execute(text("""
+                        ALTER TABLE url_analysis_results 
+                        ADD COLUMN phone_number BOOLEAN
+                    """))
+                    conn.commit()
+                    logger.info("✓ Added phone_number column")
+                else:
+                    logger.info("✓ phone_number column already exists")
+
+                # Check if ocr_engine_used column exists in url_analysis_results
+                result = conn.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'url_analysis_results' 
+                    AND column_name = 'ocr_engine_used'
+                """))
+
+                if not result.fetchone():
+                    logger.info(
+                        "Adding missing ocr_engine_used column to url_analysis_results table...")
+                    conn.execute(text("""
+                        ALTER TABLE url_analysis_results 
+                        ADD COLUMN ocr_engine_used VARCHAR(50)
+                    """))
+                    conn.commit()
+                    logger.info("✓ Added ocr_engine_used column")
+                else:
+                    logger.info("✓ ocr_engine_used column already exists")
+
+            engine.dispose()
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Database migration failed: {e}")
             return False
 
     def create_config_file(self):
@@ -237,35 +302,41 @@ CHECKPOINT_DIR=./checkpoints
 
         return True
 
-    def test_gemini_api(self):
-        """Test Gemini API connection"""
-        logger.info("Testing Gemini AI API...")
+    def test_ocr_engines(self):
+        """Test OCR engine availability"""
+        logger.info("Testing OCR engines...")
 
+        engines_available = []
+
+        # Test EasyOCR
         try:
-            import google.generativeai as genai
-
-            # Get API key from environment (try multiple env var names)
-            api_key = (os.getenv('GOOGLE_API_KEY') or
-                       os.getenv('GEMINI_API_KEY') or
-                       os.getenv('GEMINI_API_KEYS', '').split(',')[0].strip())
-
-            if not api_key:
-                logger.warning(
-                    "⚠ No API key found. Set GOOGLE_API_KEY, GEMINI_API_KEY, or GEMINI_API_KEYS")
-                return False
-
-            genai.configure(api_key=api_key)
-
-            # Test with a simple model list
-            models = list(genai.list_models())
-            logger.info(f"✓ Gemini API connected - found {len(models)} models")
-            return True
-
+            import easyocr
+            logger.info("✓ EasyOCR available")
+            engines_available.append("EasyOCR")
         except ImportError:
-            logger.error("❌ google-generativeai package not installed")
-            return False
-        except Exception as e:
-            logger.error(f"❌ Gemini API test failed: {e}")
+            logger.warning("⚠ EasyOCR not installed")
+
+        # Test Tesseract
+        try:
+            import pytesseract
+            logger.info("✓ Tesseract available")
+            engines_available.append("Tesseract")
+        except ImportError:
+            logger.warning("⚠ Tesseract not installed")
+
+        # Test OpenCV
+        try:
+            import cv2
+            logger.info("✓ OpenCV available")
+            engines_available.append("OpenCV")
+        except ImportError:
+            logger.warning("⚠ OpenCV not installed")
+
+        if engines_available:
+            logger.info(f"✓ OCR engines ready: {', '.join(engines_available)}")
+            return True
+        else:
+            logger.error("❌ No OCR engines available")
             return False
 
     def run_health_check(self):
@@ -278,7 +349,7 @@ CHECKPOINT_DIR=./checkpoints
             ("Prerequisites", self.check_prerequisites),
             ("PostgreSQL", self.check_postgresql_connection),
             ("Redis", self.check_redis_connection),
-            ("Gemini API", self.test_gemini_api),
+            ("OCR Engines", self.test_ocr_engines),
         ]
 
         results = {}
@@ -354,6 +425,8 @@ def main():
                         help="Install dependencies")
     parser.add_argument("--init-db", action="store_true",
                         help="Initialize database")
+    parser.add_argument("--migrate-db", action="store_true",
+                        help="Run database migrations")
     parser.add_argument("--create-config",
                         action="store_true", help="Create config file")
     parser.add_argument("--setup-dev", action="store_true",
@@ -378,6 +451,10 @@ def main():
 
         elif args.init_db:
             success = setup.initialize_database(drop_existing=args.drop_db)
+            sys.exit(0 if success else 1)
+
+        elif args.migrate_db:
+            success = setup.run_database_migrations()
             sys.exit(0 if success else 1)
 
         elif args.create_config:

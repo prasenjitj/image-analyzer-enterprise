@@ -1,7 +1,7 @@
 """
 Background worker process for enterprise image processing
 
-Handles chunk processing through the job queue system with Gemini AI integration,
+Handles chunk processing through the job queue system with OCR integration,
 progress tracking, retry logic, and error handling.
 """
 import asyncio
@@ -127,6 +127,14 @@ class ChunkProcessor:
                 processing_time_seconds=processing_time
             )
 
+            # Recommendation log: if there are failures, suggest checking chunk error messages
+            if failed_count > 0:
+                logger.warning(
+                    "RECOMMENDATION: Chunk %s in batch %s completed with %d failed results. "
+                    "Check ProcessingChunk.error_message and individual URLAnalysisResult.error_message fields for failure reasons.",
+                    chunk_id, batch_id, failed_count
+                )
+
             # Update batch progress
             self._update_batch_progress(batch_id)
 
@@ -155,6 +163,12 @@ class ChunkProcessor:
                 processing_time_seconds=time.time() - chunk_start_time
             )
 
+            # Recommendation log for failures caused by exceptions
+            logger.error(
+                "RECOMMENDATION: Chunk %s in batch %s failed with exception. "
+                "Inspect ProcessingChunk.error_message and URLAnalysisResult.error_message for root causes. Exception: %s",
+                chunk_id, batch_id, str(e)
+            )
             # Update batch progress
             self._update_batch_progress(batch_id)
 
@@ -231,8 +245,9 @@ class ChunkProcessor:
                     # Add analysis data if successful
                     if result.success and hasattr(result, 'analysis'):
                         analysis = result.analysis
-                        url_result.store_image = analysis.get(
-                            'store_image', False)
+                        # Coerce store_image to a strict boolean to avoid None values
+                        url_result.store_image = bool(
+                            analysis.get('store_image', False))
                         url_result.text_content = analysis.get('text_content')
                         url_result.store_name = analysis.get('store_name')
                         url_result.business_contact = analysis.get(

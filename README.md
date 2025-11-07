@@ -181,6 +181,72 @@ templates/
 
 See [PERFORMANCE_OPTIMIZATION_GUIDE.md](docs/PERFORMANCE_OPTIMIZATION_GUIDE.md) for comprehensive optimization strategies and [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for basic configuration tips.
 
+## 💰 Cost Estimation
+
+### Cost Assumptions & Methodology
+
+**Processing Rates** (based on performance benchmarks):
+- **1 API Key**: ~60 URLs/minute
+- **4 API Keys**: ~240 URLs/minute  
+- **6 API Keys**: ~350 URLs/minute
+- **8 API Keys**: ~450 URLs/minute
+
+**Cost Components**:
+- **Google Gemini AI API**: $0.0018 per image (Vision API pricing)
+
+**Assumptions**:
+- 70% success rate (30% retries due to network/API issues)
+- US-Central1 region pricing
+- Optimized configuration from performance guide
+
+### Cost Breakdown by Volume
+
+#### 1.5 Million Images
+**Gemini AI API Cost**: $1,350 (1.5M images × $0.0018 × 1.3 retries)
+
+#### 2 Million Images
+**Gemini AI API Cost**: $1,800 (2M images × $0.0018 × 1.3 retries)
+
+#### 6 Million Images
+**Gemini AI API Cost**: $5,400 (6M images × $0.0018 × 1.3 retries)
+
+### Cost Optimization Strategies
+
+**Reduce API Costs**:
+- Use fewer API keys (slower processing, lower API costs)
+- Implement result caching (reduce duplicate API calls)
+- Batch requests efficiently to minimize retries
+- Monitor API usage and optimize prompts for cost efficiency
+
+**Cost vs Performance Trade-offs**:
+- **1.5M images**: Balance cost/performance with 6-8 keys
+- **2M images**: Scale up to 8-10 keys for reasonable processing time
+- **6M images**: Maximum parallelization needed for continuous operation
+
+**Free Tier Options**:
+- **Development/Testing**: $0 using free tier resources
+- **Small Production**: <$500 for up to 300K images
+- **Enterprise**: Custom pricing available for 10M+ images
+
+### Cost Monitoring
+
+Monitor API costs in real-time using:
+```bash
+# GCP Billing Dashboard
+# View by service and time period
+
+# Cost alerts setup
+gcloud billing budgets create my-budget \
+  --billing-account=XXXXXX-XXXXXX-XXXXXX \
+  --display-name="Image Analyzer Budget" \
+  --amount=1000 \
+  --threshold-rule=percent=50 \
+  --threshold-rule=percent=90 \
+  --threshold-rule=percent=100
+```
+
+See [GCP_DEPLOYMENT_GUIDE.md](docs/GCP_DEPLOYMENT_GUIDE.md) for detailed cost optimization and [PERFORMANCE_OPTIMIZATION_GUIDE.md](docs/PERFORMANCE_OPTIMIZATION_GUIDE.md) for performance tuning.
+
 ## 🧪 Testing
 
 ```bash
