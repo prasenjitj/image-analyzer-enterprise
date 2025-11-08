@@ -258,7 +258,6 @@ class URLAnalysisResult(Base):
 
     # Cache information
     cache_hit = Column(Boolean, default=False)
-    ocr_engine_used = Column(String(50), nullable=True)
 
     # Indexes for performance
     __table_args__ = (
@@ -288,8 +287,7 @@ class URLAnalysisResult(Base):
             'processing_time_seconds': self.processing_time_seconds,
             'api_key_used': self.api_key_used,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'cache_hit': self.cache_hit,
-            'ocr_engine_used': self.ocr_engine_used
+            'cache_hit': self.cache_hit
         }
 
 

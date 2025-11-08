@@ -15,8 +15,12 @@ class EnterpriseConfig(BaseSettings):
     """Enterprise configuration for batch processing"""
 
     # API Configuration
-    google_api_key: str = Field(..., env="GOOGLE_API_KEY")
-    google_api_keys: Optional[str] = Field(None, env="GOOGLE_API_KEYS")
+    api_endpoint_url: str = Field(
+        "http://localhost:8000/generate", env="API_ENDPOINT_URL")
+    # Kept for backward compatibility
+    google_api_key: str = Field("", env="GOOGLE_API_KEY")
+    google_api_keys: Optional[str] = Field(
+        None, env="GOOGLE_API_KEYS")  # Kept for backward compatibility
 
     # Database Configuration (PostgreSQL)
     database_url: str = Field(
@@ -96,11 +100,13 @@ class EnterpriseConfig(BaseSettings):
 
     @property
     def api_keys_list(self) -> List[str]:
-        """Get list of API keys (starts with single key, expandable)"""
+        """Get list of API keys (for backward compatibility, returns empty list if using external API)"""
         if self.google_api_keys:
             keys = [key.strip() for key in self.google_api_keys.split(',')]
             return [k for k in keys if k]
-        return [self.google_api_key.strip()]
+        elif self.google_api_key:
+            return [self.google_api_key.strip()]
+        return []  # External API endpoint doesn't need API keys
 
     @property
     def is_postgresql(self) -> bool:

@@ -1,7 +1,7 @@
 """
 Background worker process for enterprise image processing
 
-Handles chunk processing through the job queue system with OCR integration,
+Handles chunk processing through the job queue system with external API integration,
 progress tracking, retry logic, and error handling.
 """
 import asyncio
@@ -33,8 +33,7 @@ class ChunkProcessor:
         self.worker_id = worker_id
         self.processor = ImageProcessor(
             api_keys=config.api_keys_list,
-            max_workers=config.max_concurrent_requests,
-            image_max_size=config.image_max_size
+            max_workers=config.max_concurrent_requests
         )
         self.cache = get_cache(config.cache_db_path)
         self.should_stop = False
@@ -248,10 +247,24 @@ class ChunkProcessor:
                         # Coerce store_image to a strict boolean to avoid None values
                         url_result.store_image = bool(
                             analysis.get('store_image', False))
-                        url_result.text_content = analysis.get('text_content')
+                        # Convert text_content list to readable string
+                        text_content_list = analysis.get('text_content', [])
+                        if isinstance(text_content_list, list):
+                            url_result.text_content = '\n'.join(
+                                str(item) for item in text_content_list if item)
+                        else:
+                            url_result.text_content = str(
+                                text_content_list) if text_content_list else ''
                         url_result.store_name = analysis.get('store_name')
-                        url_result.business_contact = analysis.get(
-                            'business_contact')
+                        # Convert business_contact list to readable string
+                        business_contact_list = analysis.get(
+                            'business_contact', [])
+                        if isinstance(business_contact_list, list):
+                            url_result.business_contact = ', '.join(
+                                str(item) for item in business_contact_list if item)
+                        else:
+                            url_result.business_contact = str(
+                                business_contact_list) if business_contact_list else ''
                         url_result.image_description = analysis.get(
                             'image_description')
                         url_result.raw_analysis = analysis
