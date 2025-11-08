@@ -25,7 +25,7 @@ The Image Analyzer Enterprise API provides comprehensive batch processing capabi
 
 Currently, the API does not require authentication for local development. For production deployment, implement authentication middleware as needed.
 
-**API Keys**: The system uses Google Vision API keys internally for image processing. Configure these via environment variables.
+**API Keys**: The system uses external AI API endpoints for image processing. Configure the endpoint URL via environment variables.
 
 ## Batch Management API
 
@@ -755,10 +755,9 @@ Download CSV import template.
   "success": "boolean",
   "error_message": "string",
   "processing_time_seconds": "float",
-  "api_key_used": "string",
+  "api_endpoint_used": "string",
   "created_at": "datetime",
-  "cache_hit": "boolean",
-  "gemini_model_used": "string"
+  "cache_hit": "boolean"
 }
 ```
 
@@ -809,12 +808,12 @@ If you prefer stricter behavior (never infer `store_image`), we can revert the i
 - Export size: 1M records maximum per export
 - Chunk size: 2000 URLs per chunk (optimized from 1000)
 
-### Google Vision API Limits (Enhanced)
-- Base: 55 requests per minute per API key
-- With multiple keys: Up to 200+ requests per minute total
-- Automatic rate limiting and retry logic
-- Dynamic rate adjustment based on API response patterns
-- Support for 6+ API keys for maximum throughput
+### External API Limits
+- Rate limits depend on your external API provider
+- Configurable timeout: 60 seconds (default)
+- Automatic retry logic with exponential backoff
+- Concurrent request limits: 10 per worker (configurable)
+- Error handling for API failures and invalid responses
 
 ### Performance Configuration
 Current optimized defaults:

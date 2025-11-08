@@ -9,7 +9,7 @@ Before starting, ensure you have:
 - **Python 3.8+** installed
 - **PostgreSQL 12+** installed and running
 - **Redis 6.0+** installed and running
-- **Google Gemini AI API Key**
+- **External AI API Endpoint** accessible (for image analysis)
 
 ## 📦 Quick Installation
 
@@ -46,8 +46,10 @@ POSTGRES_PASSWORD=your_password
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# Gemini AI API Key
-GEMINI_API_KEYS=your_gemini_api_key_here
+# External AI API Configuration
+API_ENDPOINT_URL=http://your-api-endpoint:8000/generate
+REQUEST_TIMEOUT=60
+```
 
 # Processing settings
 CHUNK_SIZE=1000
@@ -287,7 +289,7 @@ MAX_CONCURRENT_REQUESTS=25        # Higher per-worker concurrency
 
 2. **Add More API Keys:**
 ```env
-GEMINI_API_KEYS=key1,key2,key3,key4,key5,key6  # More keys for higher throughput
+GEMINI_API_KEYS=key1,key2,key3,key4,key5,key6  # Optional: kept for backward compatibility
 REQUESTS_PER_MINUTE=200           # Adjusted for multiple keys
 ```
 

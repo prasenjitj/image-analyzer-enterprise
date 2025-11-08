@@ -10,7 +10,7 @@
 > **🚀 Ready to Use**: `python3 server/run_server.py` now starts successfully!  
 > See [UPDATED_QUICK_START_GUIDE.md](UPDATED_QUICK_START_GUIDE.md) for details.
 
-A scalable, production-ready image analysis system capable of processing millions of images with advanced queuing, batch management, and real-time monitoring.
+A scalable, production-ready image analysis system capable of processing millions of images with advanced queuing, batch management, and real-time monitoring. Uses external AI API endpoints for image analysis instead of local OCR processing.
 
 ## 🚀 Features
 
@@ -22,6 +22,7 @@ A scalable, production-ready image analysis system capable of processing million
 - **Multi-format Export**: CSV, JSON, Excel exports with filtering
 - **RESTful API**: Complete programmatic access to all features
 - **Fault Tolerance**: Automatic error recovery and pause/resume support
+- **External AI Integration**: Uses configurable API endpoints for image analysis
 
 ## 📋 Quick Start (5 minutes)
 
@@ -31,15 +32,15 @@ For full, step-by-step setup with screenshots and troubleshooting, see QUICK_STA
 - Python 3.8+
 - PostgreSQL 12+
 - Redis 6+
-- Google Gemini API keys
+- External AI API endpoint (configured via environment variables)
 
 ### Environment Variables
 
 Key environment variables (full list in [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md#required-environment-variables)):
 
 ```bash
-# API Keys
-GEMINI_API_KEYS=key1,key2,key3          # Comma-separated API keys
+# External AI API Configuration
+API_ENDPOINT_URL=http://your-api-endpoint:8000/generate  # External AI API endpoint
 
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/image_analyzer
@@ -50,6 +51,7 @@ REDIS_URL=redis://localhost:6379/0
 # Application
 SECRET_KEY=your_secret_key_here
 MAX_UPLOAD_SIZE=104857600               # 100MB in bytes
+REQUEST_TIMEOUT=60                      # API request timeout in seconds
 ```
 
 ### Setup
@@ -148,7 +150,7 @@ src/
 ├── database_models.py        # PostgreSQL schema
 ├── export_manager.py         # Export formats
 ├── cache.py                  # Caching layer
-├── processor.py              # Image processing logic
+├── processor.py              # External API-based image processing
 └── enterprise_config.py      # Configuration management
 
 server/
@@ -172,80 +174,46 @@ templates/
 └── shared-ui-components.css          # Shared styles
 ```
 
-## ⚡ Performance (Updated with Optimizations)
+## ⚡ Performance (API-Based Processing)
 
-**Single API Key**: ~60 URLs/min | 15M URLs ≈ 173 days  
-**4 API Keys (Optimized)**: ~240 URLs/min | 15M URLs ≈ 35 days  
-**6+ API Keys (High Performance)**: ~350+ URLs/min | 15M URLs ≈ 24 days  
-**Memory**: ~200MB base + optimized workers with memory monitoring
+**Processing Rates** (based on external API performance):
+- **Standard Configuration**: ~100-200 URLs/minute (depends on external API response times)
+- **Optimized Setup**: ~300+ URLs/minute with proper caching and error handling
+- **Concurrent Workers**: Configurable background workers for parallel processing
+- **Memory**: ~200MB base + optimized workers with memory monitoring
 
-See [PERFORMANCE_OPTIMIZATION_GUIDE.md](docs/PERFORMANCE_OPTIMIZATION_GUIDE.md) for comprehensive optimization strategies and [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for basic configuration tips.
+Performance depends on the external API endpoint response times and network conditions. The system includes automatic retry logic and timeout handling for reliability.
 
 ## 💰 Cost Estimation
 
 ### Cost Assumptions & Methodology
 
-**Processing Rates** (based on performance benchmarks):
-- **1 API Key**: ~60 URLs/minute
-- **4 API Keys**: ~240 URLs/minute  
-- **6 API Keys**: ~350 URLs/minute
-- **8 API Keys**: ~450 URLs/minute
+**Processing Rates** (based on external API performance):
+- **Standard Configuration**: ~100-200 URLs/minute
+- **Optimized Setup**: ~300+ URLs/minute with proper caching
 
 **Cost Components**:
-- **Google Gemini AI API**: $0.0018 per image (Vision API pricing)
+- **External API Costs**: Depends on your API provider pricing
+- **Infrastructure**: PostgreSQL, Redis, and compute resources
+- **Storage**: Database storage for results and caching
 
 **Assumptions**:
+- External API costs vary by provider
+- Infrastructure costs based on cloud provider pricing
 - 70% success rate (30% retries due to network/API issues)
-- US-Central1 region pricing
-- Optimized configuration from performance guide
-
-### Cost Breakdown by Volume
-
-#### 1.5 Million Images
-**Gemini AI API Cost**: $1,350 (1.5M images × $0.0018 × 1.3 retries)
-
-#### 2 Million Images
-**Gemini AI API Cost**: $1,800 (2M images × $0.0018 × 1.3 retries)
-
-#### 6 Million Images
-**Gemini AI API Cost**: $5,400 (6M images × $0.0018 × 1.3 retries)
 
 ### Cost Optimization Strategies
 
 **Reduce API Costs**:
-- Use fewer API keys (slower processing, lower API costs)
 - Implement result caching (reduce duplicate API calls)
 - Batch requests efficiently to minimize retries
-- Monitor API usage and optimize prompts for cost efficiency
+- Monitor API usage and optimize for cost efficiency
+- Use appropriate timeout and retry settings
 
-**Cost vs Performance Trade-offs**:
-- **1.5M images**: Balance cost/performance with 6-8 keys
-- **2M images**: Scale up to 8-10 keys for reasonable processing time
-- **6M images**: Maximum parallelization needed for continuous operation
-
-**Free Tier Options**:
-- **Development/Testing**: $0 using free tier resources
-- **Small Production**: <$500 for up to 300K images
-- **Enterprise**: Custom pricing available for 10M+ images
-
-### Cost Monitoring
-
-Monitor API costs in real-time using:
-```bash
-# GCP Billing Dashboard
-# View by service and time period
-
-# Cost alerts setup
-gcloud billing budgets create my-budget \
-  --billing-account=XXXXXX-XXXXXX-XXXXXX \
-  --display-name="Image Analyzer Budget" \
-  --amount=1000 \
-  --threshold-rule=percent=50 \
-  --threshold-rule=percent=90 \
-  --threshold-rule=percent=100
-```
-
-See [GCP_DEPLOYMENT_GUIDE.md](docs/GCP_DEPLOYMENT_GUIDE.md) for detailed cost optimization and [PERFORMANCE_OPTIMIZATION_GUIDE.md](docs/PERFORMANCE_OPTIMIZATION_GUIDE.md) for performance tuning.
+**Infrastructure Costs**:
+- **Development/Testing**: Minimal costs using free tier resources
+- **Small Production**: <$50/month for moderate usage
+- **Enterprise**: Scale based on processing volume and storage needs
 
 ## 🧪 Testing
 
