@@ -1320,8 +1320,7 @@ def _store_chunk_results_in_db(batch_id: str, chunk_id: str, results: List[Any])
                 error_message=result.error if not result.success else None,
                 processing_time_seconds=getattr(
                     result, 'processing_time', 0.0),
-                cache_hit=getattr(result, 'cache_hit', False),
-                ocr_engine_used=getattr(result, 'ocr_engine_used', None)
+                cache_hit=getattr(result, 'cache_hit', False)
             )
 
             # Add analysis data if successful
@@ -1742,9 +1741,7 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                         error_message=result.get('error'),
                         processing_time_seconds=result.get(
                             'processing_time', 0.0),
-                        cache_hit=result.get('cache_hit', False),
-                        ocr_engine_used=getattr(
-                            processing_result, 'ocr_engine_used', None) if 'processing_result' in locals() else None
+                        cache_hit=result.get('cache_hit', False)
                     )
 
                     # Add analysis data if successful
@@ -1785,8 +1782,7 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                         success=False,
                         error_message=str(e),
                         processing_time_seconds=0.0,
-                        cache_hit=False,
-                        ocr_engine_used=None
+                        cache_hit=False
                     )
                     session.add(analysis_result)
                     failed_count += 1

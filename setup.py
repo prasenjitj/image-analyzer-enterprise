@@ -207,26 +207,6 @@ class EnterpriseSetup:
                 else:
                     logger.info("✓ phone_number column already exists")
 
-                # Check if ocr_engine_used column exists in url_analysis_results
-                result = conn.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'url_analysis_results' 
-                    AND column_name = 'ocr_engine_used'
-                """))
-
-                if not result.fetchone():
-                    logger.info(
-                        "Adding missing ocr_engine_used column to url_analysis_results table...")
-                    conn.execute(text("""
-                        ALTER TABLE url_analysis_results 
-                        ADD COLUMN ocr_engine_used VARCHAR(50)
-                    """))
-                    conn.commit()
-                    logger.info("✓ Added ocr_engine_used column")
-                else:
-                    logger.info("✓ ocr_engine_used column already exists")
-
             engine.dispose()
             return True
 

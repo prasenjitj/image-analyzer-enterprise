@@ -1,1 +1,0 @@
-ALTER TABLE url_analysis_results ADD COLUMN IF NOT EXISTS ocr_engine_used VARCHAR(50);
