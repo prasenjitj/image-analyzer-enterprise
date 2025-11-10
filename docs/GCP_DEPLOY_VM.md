@@ -90,10 +90,10 @@ python3 -c "import flask, sqlalchemy, redis, psycopg2; print('Dependencies OK')"
 sudo -u postgres psql
 
 # In PostgreSQL shell:
-CREATE DATABASE image_analyzer;
-CREATE USER analyzer_user WITH PASSWORD 'your_secure_password_here';
-GRANT ALL PRIVILEGES ON DATABASE image_analyzer TO analyzer_user;
-ALTER USER analyzer_user CREATEDB;
+CREATE DATABASE imageprocessing;
+CREATE USER prasenjitjana WITH PASSWORD testpass123;
+GRANT ALL PRIVILEGES ON DATABASE imageprocessing TO prasenjitjana;
+ALTER USER prasenjitjana CREATEDB;
 \q
 ```
 
@@ -122,14 +122,14 @@ Add/update these key variables in [`.env`](.env ):
 ```bash
 # Database Configuration (preferred: single URL)
 # Option A (recommended): single DATABASE_URL
-DATABASE_URL=postgresql://analyzer_user:your_secure_password_here@localhost:5432/image_analyzer
+DATABASE_URL=postgresql://prasenjitjana:testpass123@localhost:5432/imageprocessing
 
 # Option B (alternative): individual POSTGRES_* variables
 # POSTGRES_HOST=localhost
 # POSTGRES_PORT=5432
-# POSTGRES_DB=image_analyzer
-# POSTGRES_USER=analyzer_user
-# POSTGRES_PASSWORD=your_secure_password_here
+# POSTGRES_DB=imageprocessing
+# POSTGRES_USER=prasenjitjana
+# POSTGRES_PASSWORD=testpass123
 
 # Redis Configuration
 REDIS_URL=redis://localhost:6379/0
@@ -186,12 +186,16 @@ python setup.py --health-check
 ### 5.2 Test Database Models
 ```bash
 # Quick test of database models
-python -c "
-from src.database_models import db_manager, Batch
+python3 -c "
 from src.enterprise_config import config
-session = db_manager.get_session()
-print('Database connection successful')
-session.close()
+from src.database_models import db_manager
+try:
+    session = db_manager.get_session()
+    print('Database connection successful')
+    session.close()
+except Exception as e:
+    print(f'Database connection failed: {e}')
+"
 "
 ```
 
@@ -222,7 +226,7 @@ gcloud compute firewall-rules create allow-app-5001 \
 # Tag your VM with the firewall target
 gcloud compute instances add-tags qwen-vl-vm \
   --tags=http-server \
-  --zone=asia-south2-c \
+  --zone=us-central1-a \
   --project=ops-excellence
 ```
 
@@ -246,10 +250,11 @@ python server/run_workers.py
 # In another screen session
 screen -S server
 
-# Activate environment and start server
+# Activate environment and start server (bind to all interfaces for external access)
 source venv/bin/activate
 cd /home/your-username/image-analyzer-enterprise
-python server/run_server.py
+python server/run_server_htttp.py --host 0.0.0.0 --port 5001
+
 
 # Detach screen: Ctrl+A, D
 ```
@@ -338,7 +343,7 @@ sudo systemctl status image-analyzer-workers
 ```bash
 # Get VM external IP
 gcloud compute instances describe qwen-vl-vm \
-  --zone=asia-south2-c \
+  --zone=us-central1-a \
   --project=ops-excellence \
   --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
 
@@ -354,6 +359,11 @@ curl http://localhost:5001/api/v1/health
 curl -X POST http://localhost:5001/api/v1/batches \
   -F "file=@test.csv" \
   -F "batch_name=Test Batch"
+
+# For external access from your local machine:
+# curl -X POST http://[VM_EXTERNAL_IP]:5001/api/v1/batches \
+#   -F "file=@test.csv" \
+#   -F "batch_name=Test Batch"
 ```
 
 ### 9.3 Monitor Logs
@@ -378,7 +388,7 @@ Add to `/usr/local/bin/backup-db.sh`:
 ```bash
 #!/bin/bash
 DATE=$(date +%Y%m%d_%H%M%S)
-pg_dump -U analyzer_user -h localhost image_analyzer > /home/your-username/backups/db_backup_$DATE.sql
+pg_dump -U prasenjitjana -h localhost imageprocessing > /home/your-username/backups/db_backup_$DATE.sql
 find /home/your-username/backups -name "db_backup_*.sql" -mtime +7 -delete
 ```
 
