@@ -79,7 +79,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # Verify key packages
-python -c "import flask, sqlalchemy, redis, psycopg2; print('Dependencies OK')"
+python3 -c "import flask, sqlalchemy, redis, psycopg2; print('Dependencies OK')"
 ```
 
 ## Step 3: Configure Database and Redis
@@ -120,13 +120,23 @@ nano .env
 
 Add/update these key variables in [`.env`](.env ):
 ```bash
-# Database Configuration
+# Database Configuration (preferred: single URL)
+# Option A (recommended): single DATABASE_URL
 DATABASE_URL=postgresql://analyzer_user:your_secure_password_here@localhost:5432/image_analyzer
+
+# Option B (alternative): individual POSTGRES_* variables
+# POSTGRES_HOST=localhost
+# POSTGRES_PORT=5432
+# POSTGRES_DB=image_analyzer
+# POSTGRES_USER=analyzer_user
+# POSTGRES_PASSWORD=your_secure_password_here
 
 # Redis Configuration
 REDIS_URL=redis://localhost:6379/0
 
-# External API Configuration
+# External API / Gemini Configuration
+# You can either provide Gemini API keys or point to an external API endpoint
+GEMINI_API_KEYS=your_gemini_api_key_here   # comma-separated if multiple
 API_ENDPOINT_URL=http://34.66.92.16:8000/generate
 
 # Application Settings
@@ -137,7 +147,10 @@ IMAGE_PROCESSOR_MAX_CONCURRENCY=5
 
 # Logging
 LOG_LEVEL=INFO
-LOG_FILE=logs/enterprise_app.log
+LOG_FILE=./logs/enterprise_app.log
+
+# Export / directories
+EXPORT_DIR=./exports
 
 # Optional: GCP-specific settings if needed
 GOOGLE_CLOUD_PROJECT=ops-excellence
@@ -145,11 +158,15 @@ GOOGLE_CLOUD_PROJECT=ops-excellence
 
 ### 4.2 Create Required Directories
 ```bash
-# Create necessary directories
-mkdir -p uploads exports logs temp
+# Create necessary directories (added `backups` to match setup.py)
+mkdir -p uploads exports logs temp backups
 
 # Set proper permissions
-chmod 755 uploads exports logs temp
+chmod 755 uploads exports logs temp backups
+
+# If you used different paths in your .env (e.g. EXPORT_DIR or LOG_DIR), create them too:
+mkdir -p "$(awk -F= '/^EXPORT_DIR/ {print $2}' .env | tr -d ' \n')" || true
+mkdir -p "$(awk -F= '/^LOG_DIR/ {print $2}' .env | tr -d ' \n')" || true
 ```
 
 ## Step 5: Initialize Database

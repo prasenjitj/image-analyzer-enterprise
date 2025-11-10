@@ -91,8 +91,24 @@ class EnterpriseSetup:
 
         try:
             import psycopg2
+            # Prefer DATABASE_URL if provided (commonly used in cloud deployments)
+            db_url = os.getenv('DATABASE_URL')
+            if db_url:
+                logger.info("Using DATABASE_URL from environment")
+                try:
+                    with psycopg2.connect(db_url) as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SELECT version();")
+                            version = cursor.fetchone()[0]
+                            logger.info(
+                                f"✓ Connected to PostgreSQL: {version}")
+                            return True
+                except Exception:
+                    # Fall through to individual POSTGRES_* vars for more detailed error logging
+                    logger.warning(
+                        "Failed to connect with DATABASE_URL, falling back to POSTGRES_* env vars")
 
-            # Get connection parameters from environment
+            # Fallback to individual POSTGRES_* environment variables
             host = host or os.getenv('POSTGRES_HOST', 'localhost')
             port = port or int(os.getenv('POSTGRES_PORT', 5432))
             database = database or os.getenv('POSTGRES_DB', 'imageprocessing')
@@ -184,7 +200,12 @@ class EnterpriseSetup:
 
             # Get database connection
             db_config = config.get_database_config()
-            engine = create_engine(**db_config)
+
+            # Support either a dict (kwargs for create_engine) or a URL string
+            if isinstance(db_config, dict):
+                engine = create_engine(**db_config)
+            else:
+                engine = create_engine(db_config)
 
             with engine.connect() as conn:
                 # Check if phone_number column exists in url_analysis_results
@@ -217,15 +238,17 @@ class EnterpriseSetup:
     def create_config_file(self):
         """Create example configuration file"""
         logger.info("Creating example configuration...")
-
         config_content = """# Enterprise Image Processing Configuration
 # Copy this file to .env and configure your settings
 
-# PostgreSQL Database Configuration
+# Option A - Single DATABASE_URL (recommended for cloud/VM deployments)
+DATABASE_URL=postgresql://analyzer_user:your_password_here@localhost:5432/image_analyzer
+
+# Option B - Individual POSTGRES_* variables (alternative)
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=imageprocessing
-POSTGRES_USER=postgres
+POSTGRES_DB=image_analyzer
+POSTGRES_USER=analyzer_user
 POSTGRES_PASSWORD=your_password_here
 
 # Redis Configuration
@@ -234,8 +257,10 @@ REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
 
-# Gemini AI Configuration
+# Gemini / External API Configuration
+# Provide Gemini API keys (comma-separated) or point to an external API endpoint
 GEMINI_API_KEYS=your_gemini_api_key_here
+API_ENDPOINT_URL=http://your-external-api-endpoint:8000/generate
 
 # Processing Configuration
 CHUNK_SIZE=1000
@@ -248,10 +273,12 @@ RETRY_ATTEMPTS=3
 SECRET_KEY=your-secret-key-here
 MAX_UPLOAD_SIZE=104857600  # 100MB
 DEBUG=false
+LOG_FILE=./logs/enterprise_app.log
 
 # Directories
 UPLOAD_DIR=./uploads
 LOG_DIR=./logs
+EXPORT_DIR=./exports
 CHECKPOINT_DIR=./checkpoints
 """
 
@@ -272,7 +299,8 @@ CHECKPOINT_DIR=./checkpoints
             "uploads",
             "logs",
             "exports",
-            "temp"
+            "temp",
+            "backups"
         ]
 
         for dir_name in directories:
