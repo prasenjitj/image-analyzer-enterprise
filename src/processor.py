@@ -124,7 +124,9 @@ class ImageProcessor:
 
     async def _analyze_image(self, image_url: str) -> Dict[str, Any]:
         """Analyze image using API endpoint"""
-        api_url = "http://34.172.254.56:8000/generate"
+        # Use configured API endpoint (fall back to configured default address if needed)
+        api_url = getattr(config, 'api_endpoint_url',
+                          None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
 Analyze this image and determine if it shows a physical store or business location.
@@ -149,57 +151,103 @@ Guidelines:
             data.add_field('text', prompt.strip())
             data.add_field('image_url', image_url)
 
-            # Make API request
-            async with self.session.post(api_url, data=data) as response:
-                if response.status != 200:
-                    raise Exception(
-                        f"API request failed with status {response.status}")
+            # Prepare headers (some servers require a User-Agent)
+            headers = {'User-Agent': 'ImageAnalyzerEnterprise/1.0'}
 
-                response_text = await response.text()
-
-                # Parse response - handle both direct JSON and markdown-wrapped JSON
+            # Make API request with simple retry logic for transient network errors
+            response_text = None
+            last_exception = None
+            for attempt in range(max(1, getattr(config, 'retry_attempts', 3))):
                 try:
-                    # Try direct JSON parsing first
-                    api_response = await response.json()
-                except:
-                    # If not JSON, try to parse as text and extract JSON from markdown
-                    api_response = self._parse_api_response(response_text)
-
-                # Check for API error responses (status 200 but with error details)
-                if 'detail' in api_response and isinstance(api_response['detail'], str):
-                    if 'invalid' in api_response['detail'].lower() or 'error' in api_response['detail'].lower():
-                        raise Exception(
-                            f"API returned error: {api_response['detail']}")
-
-                # Extract the analysis from the response
-                if 'response' in api_response:
-                    # Handle nested response structure
-                    analysis_text = api_response['response']
-                    if isinstance(analysis_text, str):
-                        # Remove markdown code blocks if present
-                        if analysis_text.startswith('```json') and analysis_text.endswith('```'):
-                            analysis_text = analysis_text[7:-3].strip()
-                        elif analysis_text.startswith('```') and analysis_text.endswith('```'):
-                            analysis_text = analysis_text[3:-3].strip()
-
-                        try:
-                            analysis_data = json.loads(analysis_text)
-                        except json.JSONDecodeError:
+                    async with self.session.post(api_url, data=data, headers=headers) as response:
+                        if response.status != 200:
                             raise Exception(
-                                f"Failed to parse API response JSON: {analysis_text}")
-                    else:
-                        analysis_data = analysis_text
+                                f"API request failed with status {response.status}")
+
+                        response_text = await response.text()
+                        # successful request, break out of retry loop
+                        last_exception = None
+                        break
+
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    # Transient network error or timeout - record and retry if attempts remain
+                    last_exception = e
+                    logger.warning(
+                        "Transient error calling API for %s (attempt %d/%d): %s",
+                        image_url, attempt +
+                        1, getattr(config, 'retry_attempts', 3), repr(e)
+                    )
+                    # Exponential backoff before retrying (small, bounded)
+                    await asyncio.sleep(min(10, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+
+            if response_text is None:
+                # Retries exhausted or an immediate non-retriable error occurred
+                if last_exception:
+                    # Raise the last caught network exception
+                    logger.exception(
+                        "Exhausted retries calling API for %s", image_url)
+                    raise last_exception
                 else:
-                    # Direct response structure
-                    analysis_data = api_response
+                    raise Exception("Failed to retrieve API response")
 
-                # Validate and normalize the response
-                analysis = self._normalize_api_response(analysis_data)
+            # Parse response - handle both direct JSON and markdown-wrapped JSON
+            try:
+                # Try direct JSON parsing first
+                # Note: some servers may return text-wrapped JSON, so fall back to parsing
+                api_response = json.loads(response_text)
+            except Exception:
+                # If not JSON, try to parse as text and extract JSON from markdown
+                api_response = self._parse_api_response(response_text)
 
-                return analysis
+            # Defensive checks: ensure we received a dict-like response
+            if api_response is None:
+                # API returned literal `null` or empty body
+                raise Exception(
+                    f"API returned empty/null response for {image_url}: {response_text[:500]}")
+
+            if not isinstance(api_response, dict):
+                # Unexpected response shape (e.g., list or string). Include snippet for debugging.
+                raise Exception(
+                    f"Unexpected API response type {type(api_response).__name__} for {image_url}. Response snippet: {str(response_text)[:500]}"
+                )
+
+            # Check for API error responses (status 200 but with error details)
+            if 'detail' in api_response and isinstance(api_response['detail'], str):
+                if 'invalid' in api_response['detail'].lower() or 'error' in api_response['detail'].lower():
+                    raise Exception(
+                        f"API returned error: {api_response['detail']}")
+
+            # Extract the analysis from the response
+            if 'response' in api_response:
+                # Handle nested response structure
+                analysis_text = api_response['response']
+                if isinstance(analysis_text, str):
+                    # Remove markdown code blocks if present
+                    if analysis_text.startswith('```json') and analysis_text.endswith('```'):
+                        analysis_text = analysis_text[7:-3].strip()
+                    elif analysis_text.startswith('```') and analysis_text.endswith('```'):
+                        analysis_text = analysis_text[3:-3].strip()
+
+                    try:
+                        analysis_data = json.loads(analysis_text)
+                    except json.JSONDecodeError:
+                        raise Exception(
+                            f"Failed to parse API response JSON: {analysis_text}")
+                else:
+                    analysis_data = analysis_text
+            else:
+                # Direct response structure
+                analysis_data = api_response
+
+            # Validate and normalize the response
+            analysis = self._normalize_api_response(analysis_data)
+
+            return analysis
 
         except Exception as e:
-            logger.error(f"Error calling API for {image_url}: {e}")
+            # Log full traceback and exception type for easier debugging
+            logger.exception("Error calling API for %s: %s",
+                             image_url, repr(e))
             raise
 
     def _parse_api_response(self, response_text: str) -> Dict[str, Any]:

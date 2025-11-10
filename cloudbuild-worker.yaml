@@ -1,4 +1,0 @@
-steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-f', 'Dockerfile.worker', '-t', 'gcr.io/ops-excellence/image-analyzer-worker:latest', '.']
-images: ['gcr.io/ops-excellence/image-analyzer-worker:latest']

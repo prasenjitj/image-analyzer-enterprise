@@ -171,3 +171,18 @@ test_*.json
 *_REPORT.md
 CODE_REVIEW_REPORT.md
 DOCUMENTATION_REVIEW_REPORT.md
+
+# Docker / build context & local temp files
+cloudbuild-worker.yaml
+cloudbuild.yaml
+.temp*
+
+# Local-only files and local python envs
+.local/
+.venv/
+
+# Node/npm
+node_modules/
+
+# Ignore docker build context artifacts
+.dockerignore

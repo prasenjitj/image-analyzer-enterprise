@@ -1037,7 +1037,9 @@ class BatchManager:
     def _estimate_processing_time(self, total_urls: int) -> float:
         """Estimate processing time in hours"""
         # Base estimate: 60 URLs per minute with single API key
-        urls_per_hour = 60 * 60 / len(config.api_keys_list)
+        api_keys_count = len(
+            config.api_keys_list) if config.api_keys_list else 1
+        urls_per_hour = 60 * 60 / api_keys_count
         return total_urls / urls_per_hour
 
     def get_batch_summary_stats(self) -> Dict[str, Any]:
