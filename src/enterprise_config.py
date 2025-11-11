@@ -97,6 +97,12 @@ class EnterpriseConfig(BaseSettings):
     development_mode: bool = Field(False, env="DEVELOPMENT_MODE")
     enable_debug_logging: bool = Field(False, env="ENABLE_DEBUG_LOGGING")
     skip_image_download: bool = Field(False, env="SKIP_IMAGE_DOWNLOAD")
+    # Whether to always upload downloaded image bytes to the API (instead of
+    # sending only the image URL). Useful when the API expects a file upload.
+    upload_always: bool = Field(False, env="UPLOAD_ALWAYS")
+    # In development mode, store the actual image bytes that are sent to the
+    # remote API so developers can inspect what was uploaded.
+    store_sent_images: bool = Field(False, env="STORE_SENT_IMAGES")
 
     @property
     def api_keys_list(self) -> List[str]:

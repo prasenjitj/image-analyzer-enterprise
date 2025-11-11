@@ -10,6 +10,9 @@ import re
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import json
+import os
+from io import BytesIO
+from PIL import Image, ImageOps
 
 from .enterprise_config import config
 
@@ -65,6 +68,64 @@ class ImageProcessor:
             self.current_api_key_index + 1) % len(self.api_keys)
         return api_key
 
+    async def _download_and_resize_image(self, image_url: str, always_upload: bool = False) -> Optional[bytes]:
+        """Download image and resize if larger than 800x600.
+
+        Returns resized image bytes (JPEG) when resizing occurred, or None
+        when download failed or resizing was not necessary.
+        """
+        # Ensure we have a session
+        if not self.session or getattr(self.session, 'closed', False):
+            self.start_processing()
+
+        try:
+            async with self.session.get(image_url) as img_resp:
+                if img_resp.status != 200:
+                    logger.debug(
+                        'Image download returned non-200 %s for %s', img_resp.status, image_url)
+                    return None
+
+                img_bytes = await img_resp.read()
+
+                try:
+                    with Image.open(BytesIO(img_bytes)) as img:
+                        img = ImageOps.exif_transpose(img)
+                        w, h = img.size
+                        # If image exceeds threshold, resize+pad to 384x384
+                        if w > 800 or h > 600:
+                            img = img.convert('RGB')
+                            img.thumbnail((384, 384), Image.LANCZOS)
+                            square = Image.new(
+                                'RGB', (384, 384), (255, 255, 255))
+                            paste_x = (384 - img.width) // 2
+                            paste_y = (384 - img.height) // 2
+                            square.paste(img, (paste_x, paste_y))
+                            out_buf = BytesIO()
+                            square.save(out_buf, format='JPEG', quality=85)
+                            out_buf.seek(0)
+                            return out_buf.read()
+
+                        # If caller requested always_upload, return the image
+                        # bytes (converted to JPEG) even when not resized.
+                        if always_upload:
+                            img = img.convert('RGB')
+                            out_buf = BytesIO()
+                            img.save(out_buf, format='JPEG', quality=85)
+                            out_buf.seek(0)
+                            return out_buf.read()
+
+                except Exception:
+                    logger.debug(
+                        'Failed to open/process downloaded image for %s', image_url)
+                    return None
+
+        except Exception:
+            logger.debug(
+                'Failed to download image for local processing: %s', image_url)
+            return None
+
+        return None
+
     async def process_batch(self, urls: List[str]) -> List[ProcessingResult]:
         """Process a batch of URLs"""
         # Ensure session is initialized and valid
@@ -102,6 +163,12 @@ class ImageProcessor:
         start_time = time.time()
 
         try:
+            # Ensure processing session is available before attempting to
+            # download/resize images locally. This covers cases where
+            # `process_single_url` was called directly without prior
+            # `start_processing()`.
+            if not self.session or getattr(self.session, 'closed', False):
+                self.start_processing()
             # Process image with API endpoint
             analysis = await self._analyze_image(url)
 
@@ -133,10 +200,10 @@ Analyze this image and determine if it shows a physical store or business locati
 Please provide a JSON response with the following structure:
 {
     "store_image": true/false,
-    "text_content": ["any", "visible", "text", "in", "the", "image"],
-    "store_name": "name of the store if visible",
-    "business_contact": ["phone number", "email", "or website if visible"],
-    "image_description": "brief description of what the image shows"
+    "text_content": "Any visible text in the image",
+    "store_name": "Name of the store if visible",
+    "business_contact": "visible phone number if any in the store",
+    "image_description": "Brief description of what the image shows in 20 - 30 words"
 }
 Guidelines:
 - store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment
@@ -146,10 +213,39 @@ Guidelines:
 """
 
         try:
+            # Attempt to download and resize the image before making the API request.
+            # Respect config.skip_image_download; when disabled, pass
+            # config.upload_always to control whether we always attach image bytes.
+            resized_bytes = None
+            if not getattr(config, 'skip_image_download', False):
+                resized_bytes = await self._download_and_resize_image(image_url, always_upload=getattr(config, 'upload_always', False))
+
+            # If configured for development debugging, save the actual bytes
+            # we will send to the API so developers can inspect them later.
+            if resized_bytes and getattr(config, 'development_mode', False) and getattr(config, 'store_sent_images', False):
+                try:
+                    # Ensure directories exist
+                    config.create_directories()
+                    filename = f"{self.get_url_hash(image_url)}_{int(time.time())}.jpg"
+                    save_path = os.path.join(config.upload_dir, filename)
+                    with open(save_path, 'wb') as f:
+                        f.write(resized_bytes)
+                    logger.debug('Saved sent image for %s to %s',
+                                 image_url, save_path)
+                except Exception:
+                    logger.exception(
+                        'Failed to save sent image for debugging: %s', image_url)
+
             # Prepare form data
             data = aiohttp.FormData()
             data.add_field('text', prompt.strip())
-            data.add_field('image_url', image_url)
+            # Attach resized image file when available; otherwise send image_url only.
+            if resized_bytes:
+                data.add_field('image', resized_bytes,
+                               filename='resized.jpg', content_type='image/jpeg')
+            else:
+                # This line remains unchanged
+                data.add_field('image_url', image_url)
 
             # Prepare headers (some servers require a User-Agent)
             headers = {'User-Agent': 'ImageAnalyzerEnterprise/1.0'}
