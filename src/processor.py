@@ -199,21 +199,7 @@ class ImageProcessor:
                           None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
-Analyze this image and determine if it shows a physical store or business location or a stall or restaurant. Extract any visible text, including store names, signs, phone numbers, or websites.
-Please provide a JSON response with the following structure:
-{
-    "store_image": true/false,
-    "text_content": "Any visible text in the image",
-    "store_name": "Name of the store if visible",
-    "business_contact": "visible phone number if any in the store",
-    "image_description": "Brief description of what the image shows in 20 - 30 words"
-}
-Guidelines:
-- store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment or stall
-- Otherwise, store_image should be false (e.g., if it's a product image, landscape, indoor scene without business context)
-- Extract any visible text including store names, signs, phone numbers, websites
-- Be concise but accurate in descriptions
-- If uncertain about store_image, err on the side of false
+"Analyze this image and determine if it shows a physical store or business location. Please provide a JSON response with the following structure: {\"store_image\": true/false, \"text_content\": \"any visible text in the image\", \"store_name\": \"name of the store if visible\", \"business_contact\": \"phone number, email, or website if visible\", \"image_description\": \"brief description of what the image shows\"} Guidelines: - store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment - Extract any visible text including store names, signs, phone numbers, websites - Be concise but accurate in descriptions - If uncertain about store_image, err on the side of false"
 """
 
         try:
@@ -254,41 +240,84 @@ Guidelines:
             # Prepare headers (some servers require a User-Agent)
             headers = {'User-Agent': 'ImageAnalyzerEnterprise/1.0'}
 
-            # Make API request with simple retry logic for transient network errors
-            response_text = None
+            # Make API request with improved retry logging and clearer exception on exhaustion
+            attempts = max(1, getattr(config, 'retry_attempts', 3))
             last_exception = None
-            for attempt in range(max(1, getattr(config, 'retry_attempts', 3))):
+            response_text = None
+
+            for attempt in range(attempts):
                 try:
+                    logger.debug(
+                        "Calling API %s (attempt %d/%d) timeout=%ss",
+                        api_url,
+                        attempt + 1,
+                        attempts,
+                        getattr(config, 'request_timeout', None),
+                    )
                     async with self.session.post(api_url, data=data, headers=headers) as response:
+                        body = await response.text()
                         if response.status != 200:
+                            logger.warning(
+                                "API returned non-200 status %s for %s (attempt %d/%d). Body snippet: %s",
+                                response.status, image_url, attempt +
+                                1, attempts, (body or "")[:1000]
+                            )
                             raise Exception(
                                 f"API request failed with status {response.status}")
-
-                        response_text = await response.text()
-                        # successful request, break out of retry loop
+                        response_text = body
                         last_exception = None
                         break
 
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    # Transient network error or timeout - record and retry if attempts remain
+                except asyncio.TimeoutError as e:
                     last_exception = e
                     logger.warning(
-                        "Transient error calling API for %s (attempt %d/%d): %s",
-                        image_url, attempt +
-                        1, getattr(config, 'retry_attempts', 3), repr(e)
+                        "Timeout calling API for %s (attempt %d/%d). configured_timeout=%s",
+                        image_url,
+                        attempt + 1,
+                        attempts,
+                        getattr(config, 'request_timeout', None),
                     )
-                    # Exponential backoff before retrying (small, bounded)
-                    await asyncio.sleep(min(10, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+                    await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+
+                except aiohttp.ClientError as e:
+                    last_exception = e
+                    logger.warning(
+                        "Network error calling API for %s (attempt %d/%d): %s",
+                        image_url,
+                        attempt + 1,
+                        attempts,
+                        repr(e),
+                    )
+                    await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+
+                except Exception as e:
+                    last_exception = e
+                    logger.error(
+                        "Unexpected error calling API for %s (attempt %d/%d): %s",
+                        image_url,
+                        attempt + 1,
+                        attempts,
+                        repr(e),
+                    )
+                    # Do not retry on unexpected logic errors
+                    break
 
             if response_text is None:
-                # Retries exhausted or an immediate non-retriable error occurred
-                if last_exception:
-                    # Raise the last caught network exception
-                    logger.exception(
-                        "Exhausted retries calling API for %s", image_url)
+                logger.exception(
+                    "Exhausted retries calling API for %s after %d attempts. last_exception=%s",
+                    image_url,
+                    attempts,
+                    repr(last_exception),
+                )
+                if isinstance(last_exception, asyncio.TimeoutError):
+                    raise Exception(
+                        f"API request timed out after {attempts} attempts (timeout={getattr(config, 'request_timeout', None)}s) for {image_url}"
+                    ) from last_exception
+                elif last_exception:
                     raise last_exception
                 else:
-                    raise Exception("Failed to retrieve API response")
+                    raise Exception(
+                        "Failed to retrieve API response (unknown reason)")
 
             # Parse response - handle both direct JSON and markdown-wrapped JSON
             try:
