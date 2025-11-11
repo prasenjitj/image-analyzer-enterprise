@@ -34,14 +34,17 @@ class ProcessingResult:
 class ImageProcessor:
     """Enterprise image processor using API endpoint"""
 
-    def __init__(self, api_keys: List[str] = None, max_workers: int = 10):
+    def __init__(self, api_keys: List[str] = None, max_workers: Optional[int] = None):
         self.api_keys = api_keys or config.api_keys_list
-        self.max_workers = max_workers
+        self.max_workers = max_workers if max_workers is not None else getattr(
+            config, 'max_concurrent_workers', 5)
         self.current_api_key_index = 0
         self.session: Optional[aiohttp.ClientSession] = None
 
         logger.info(
             f"ImageProcessor initialized with API endpoint processing")
+        logger.info(
+            f"ImageProcessor initialized with API endpoint processing (max_workers={self.max_workers})")
 
     def start_processing(self):
         """Initialize processing session"""
@@ -91,14 +94,14 @@ class ImageProcessor:
                     with Image.open(BytesIO(img_bytes)) as img:
                         img = ImageOps.exif_transpose(img)
                         w, h = img.size
-                        # If image exceeds threshold, resize+pad to 384x384
-                        if w > 800 or h > 600:
+                        # If image exceeds threshold, resize+pad to 512x512
+                        if w > 640 or h > 640:
                             img = img.convert('RGB')
-                            img.thumbnail((384, 384), Image.LANCZOS)
+                            img.thumbnail((512, 512), Image.LANCZOS)
                             square = Image.new(
-                                'RGB', (384, 384), (255, 255, 255))
-                            paste_x = (384 - img.width) // 2
-                            paste_y = (384 - img.height) // 2
+                                'RGB', (512, 512), (255, 255, 255))
+                            paste_x = (512 - img.width) // 2
+                            paste_y = (512 - img.height) // 2
                             square.paste(img, (paste_x, paste_y))
                             out_buf = BytesIO()
                             square.save(out_buf, format='JPEG', quality=85)
@@ -196,7 +199,7 @@ class ImageProcessor:
                           None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
-Analyze this image and determine if it shows a physical store or business location.
+Analyze this image and determine if it shows a physical store or business location or a stall or restaurant. Extract any visible text, including store names, signs, phone numbers, or websites.
 Please provide a JSON response with the following structure:
 {
     "store_image": true/false,
@@ -206,7 +209,8 @@ Please provide a JSON response with the following structure:
     "image_description": "Brief description of what the image shows in 20 - 30 words"
 }
 Guidelines:
-- store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment
+- store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment or stall
+- Otherwise, store_image should be false (e.g., if it's a product image, landscape, indoor scene without business context)
 - Extract any visible text including store names, signs, phone numbers, websites
 - Be concise but accurate in descriptions
 - If uncertain about store_image, err on the side of false

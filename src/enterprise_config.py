@@ -40,19 +40,19 @@ class EnterpriseConfig(BaseSettings):
     # Batch Processing Configuration
     chunk_size: int = Field(1000, env="CHUNK_SIZE")
     max_concurrent_batches: int = Field(5, env="MAX_CONCURRENT_BATCHES")
-    max_concurrent_chunks: int = Field(3, env="MAX_CONCURRENT_CHUNKS")
+    max_concurrent_chunks: int = Field(1, env="MAX_CONCURRENT_CHUNKS")
     chunk_processing_timeout: int = Field(
         1800, env="CHUNK_PROCESSING_TIMEOUT")  # 30 minutes
 
     # Processing Configuration
-    max_concurrent_workers: int = Field(50, env="MAX_CONCURRENT_WORKERS")
-    request_timeout: int = Field(30, env="REQUEST_TIMEOUT")
+    max_concurrent_workers: int = Field(8, env="MAX_CONCURRENT_WORKERS")
+    request_timeout: int = Field(60, env="REQUEST_TIMEOUT")
     retry_attempts: int = Field(3, env="RETRY_ATTEMPTS")
     retry_delay: float = Field(2.0, env="RETRY_DELAY")
 
     # Rate Limiting (Single API Key Foundation)
     requests_per_minute: int = Field(
-        55, env="REQUESTS_PER_MINUTE")  # Conservative
+        100, env="REQUESTS_PER_MINUTE")  # Conservative
     rate_limit_buffer: float = Field(0.1, env="RATE_LIMIT_BUFFER")
 
     # Progress and Monitoring
@@ -80,11 +80,11 @@ class EnterpriseConfig(BaseSettings):
     image_max_size: int = Field(2048, env="IMAGE_MAX_SIZE")
     memory_limit_gb: int = Field(8, env="MEMORY_LIMIT_GB")
     gc_frequency: int = Field(1000, env="GC_FREQUENCY")
-    max_concurrent_requests: int = Field(10, env="MAX_CONCURRENT_REQUESTS")
+    max_concurrent_requests: int = Field(1, env="MAX_CONCURRENT_REQUESTS")
 
     # Background Job Configuration
     job_queue_name: str = Field("image_analysis_jobs", env="JOB_QUEUE_NAME")
-    job_retry_attempts: int = Field(3, env="JOB_RETRY_ATTEMPTS")
+    job_retry_attempts: int = Field(2, env="JOB_RETRY_ATTEMPTS")
     job_retry_delay: int = Field(60, env="JOB_RETRY_DELAY")  # seconds
     worker_timeout: int = Field(3600, env="WORKER_TIMEOUT")  # 1 hour
 
