@@ -240,7 +240,7 @@ screen -S workers
 # Activate environment and start workers
 source venv/bin/activate
 cd /home/your-username/image-analyzer-enterprise
-python server/run_workers.py
+source venv/bin/activate && python server/run_workers.py
 
 # Detach screen: Ctrl+A, D
 ```
@@ -253,7 +253,8 @@ screen -S server
 # Activate environment and start server (bind to all interfaces for external access)
 source venv/bin/activate
 cd /home/your-username/image-analyzer-enterprise
-python server/run_server_htttp.py --host 0.0.0.0 --port 5001
+source venv/bin/activate && python server/run_server_http.py --host 0.0.0.0 --port 5001
+
 
 
 # Detach screen: Ctrl+A, D
