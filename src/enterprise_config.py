@@ -45,8 +45,9 @@ class EnterpriseConfig(BaseSettings):
         1800, env="CHUNK_PROCESSING_TIMEOUT")  # 30 minutes
 
     # Processing Configuration
-    max_concurrent_workers: int = Field(8, env="MAX_CONCURRENT_WORKERS")
-    request_timeout: int = Field(60, env="REQUEST_TIMEOUT")
+    max_concurrent_workers: int = Field(5, env="MAX_CONCURRENT_WORKERS")
+    # Increased default timeout to accommodate longer /generate processing
+    request_timeout: int = Field(150, env="REQUEST_TIMEOUT")
     retry_attempts: int = Field(3, env="RETRY_ATTEMPTS")
     retry_delay: float = Field(2.0, env="RETRY_DELAY")
 
