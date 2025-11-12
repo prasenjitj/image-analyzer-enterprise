@@ -55,28 +55,29 @@ class BatchManager:
 
     def create_batch_from_csv(self, csv_content: str, batch_name: str = None,
                               filename: str = None) -> Tuple[str, Dict[str, Any]]:
-        """Create a new batch from CSV content"""
+        """Create a new batch from CSV content with listing data"""
 
-        # Parse CSV content
-        urls = self._parse_csv_content(csv_content)
+        # Parse CSV content to get listing data
+        listings = self._parse_csv_content(csv_content)
 
-        if not urls:
-            raise ValueError("No valid URLs found in CSV file")
+        if not listings:
+            raise ValueError("No valid listing data found in CSV file")
 
         # Generate batch name if not provided
         if not batch_name:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            batch_name = f"Batch_{timestamp}"
+            batch_name = f"Listings_Batch_{timestamp}"
 
         # Calculate batch parameters
-        total_urls = len(urls)
-        total_chunks = (total_urls + self.chunk_size - 1) // self.chunk_size
+        total_listings = len(listings)
+        total_chunks = (total_listings + self.chunk_size -
+                        1) // self.chunk_size
 
         # Create batch record
         with db_manager.get_session() as session:
             batch = ProcessingBatch(
                 batch_name=batch_name,
-                total_urls=total_urls,
+                total_urls=total_listings,
                 chunk_size=self.chunk_size,
                 total_chunks=total_chunks,
                 original_filename=filename,
@@ -84,7 +85,8 @@ class BatchManager:
                 processing_config={
                     'chunk_size': self.chunk_size,
                     'max_retries': config.retry_attempts,
-                    'timeout': config.request_timeout
+                    'timeout': config.request_timeout,
+                    'data_type': 'listings'  # Mark this as listings data
                 }
             )
 
@@ -92,22 +94,23 @@ class BatchManager:
             session.commit()
             batch_id = str(batch.batch_id)
 
-        # Create chunks
-        chunks_created = self._create_chunks(batch_id, urls)
+        # Create chunks with listing data
+        chunks_created = self._create_chunks(batch_id, listings)
 
         logger.info(
-            f"Created batch {batch_id} with {total_urls} URLs in {total_chunks} chunks")
+            f"Created batch {batch_id} with {total_listings} listings in {total_chunks} chunks")
 
         # Return batch information
         batch_info = {
             'batch_id': batch_id,
             'batch_name': batch_name,
-            'total_urls': total_urls,
+            'total_urls': total_listings,  # Keep this name for backward compatibility
+            'total_listings': total_listings,
             'total_chunks': total_chunks,
             'chunk_size': self.chunk_size,
             'chunks_created': chunks_created,
             'status': BatchStatus.PENDING.value,
-            'estimated_time_hours': self._estimate_processing_time(total_urls)
+            'estimated_time_hours': self._estimate_processing_time(total_listings)
         }
 
         return batch_id, batch_info
@@ -658,7 +661,7 @@ class BatchManager:
             return None
 
     def get_batch_results(self, batch_id: str, status_filter: str = None) -> List[Dict[str, Any]]:
-        """Get batch results with optional status filtering"""
+        """Get batch results with optional status filtering, including listing data"""
         try:
             with db_manager.get_session() as session:
                 # First check if batch exists
@@ -686,9 +689,17 @@ class BatchManager:
                     {
                         'id': str(result.result_id),
                         'url': result.url,
+                        # Listing data
+                        'serial_number': result.serial_number,
+                        'business_name': result.business_name,
+                        'input_phone_number': result.input_phone_number,
+                        'storefront_photo_url': result.storefront_photo_url,
+                        # Analysis results
                         'success': result.success,
+                        'store_image': result.store_image,
                         'store_name': result.store_name,
                         'business_contact': result.business_contact,
+                        'phone_number': result.phone_number,
                         'image_description': result.image_description,
                         # Truncate for API
                         'text_content': result.text_content[:500] if result.text_content else None,
@@ -848,52 +859,98 @@ class BatchManager:
                 'recommendations': recommendations
             }
 
-    def _parse_csv_content(self, csv_content: str) -> List[str]:
-        """Parse CSV content and extract URLs"""
-        urls = []
+    def _parse_csv_content(self, csv_content: str) -> List[Dict[str, str]]:
+        """Parse CSV content and extract listing data"""
+        listings = []
 
         try:
             csv_reader = csv.DictReader(io.StringIO(csv_content))
 
-            for row in csv_reader:
-                # Look for URL in common column names
-                url = None
-                for column in ['url', 'URL', 'image_url', 'link']:
+            for row_num, row in enumerate(csv_reader, start=1):
+                # Extract listing data with multiple possible column name variants
+                listing_data = {}
+
+                # Serial Number
+                serial_number = None
+                for column in ['Serial No.', 'Serial No', 'serial_no', 'serial_number', 'id', 'ID']:
                     if column in row and row[column]:
-                        url = row[column].strip()
+                        serial_number = row[column].strip()
                         break
 
-                if url and (url.startswith('http://') or url.startswith('https://')):
-                    urls.append(url)
+                # Business Name
+                business_name = None
+                for column in ['Business Name', 'business_name', 'name', 'store_name', 'company']:
+                    if column in row and row[column]:
+                        business_name = row[column].strip()
+                        break
+
+                # Phone Number
+                phone_number = None
+                for column in ['Phone Number', 'phone_number', 'phone', 'contact', 'mobile']:
+                    if column in row and row[column]:
+                        phone_number = row[column].strip()
+                        break
+
+                # StoreFront Photo URL
+                storefront_url = None
+                for column in ['StoreFront Photo URL', 'storefront_photo_url', 'photo_url', 'image_url', 'url', 'URL']:
+                    if column in row and row[column]:
+                        storefront_url = row[column].strip()
+                        break
+
+                # Validate required fields
+                if not storefront_url or not (storefront_url.startswith('http://') or storefront_url.startswith('https://')):
+                    logger.warning(
+                        f"Row {row_num}: Invalid or missing StoreFront Photo URL")
+                    continue
+
+                # Create listing entry
+                listing_data = {
+                    'serial_number': serial_number or str(row_num),
+                    'business_name': business_name or 'Unknown Business',
+                    'phone_number': phone_number or '',
+                    'storefront_photo_url': storefront_url,
+                    'row_number': row_num
+                }
+
+                listings.append(listing_data)
 
         except Exception as e:
             logger.error(f"Error parsing CSV content: {e}")
             raise ValueError(f"Invalid CSV format: {e}")
 
-        # Remove duplicates while preserving order
+        if not listings:
+            raise ValueError(
+                "No valid listing data found in CSV. Required columns: StoreFront Photo URL")
+
+        # Remove duplicates based on storefront_photo_url while preserving order
         seen = set()
-        unique_urls = []
-        for url in urls:
+        unique_listings = []
+        for listing in listings:
+            url = listing['storefront_photo_url']
             if url not in seen:
                 seen.add(url)
-                unique_urls.append(url)
+                unique_listings.append(listing)
 
-        return unique_urls
+        logger.info(f"Parsed {len(unique_listings)} unique listings from CSV")
+        return unique_listings
 
-    def _create_chunks(self, batch_id: str, urls: List[str]) -> int:
-        """Create chunks for a batch"""
+    def _create_chunks(self, batch_id: str, listings: List[Dict[str, str]]) -> int:
+        """Create chunks for a batch with listing data"""
         chunks_created = 0
 
         with db_manager.get_session() as session:
-            for i in range(0, len(urls), self.chunk_size):
-                chunk_urls = urls[i:i + self.chunk_size]
+            for i in range(0, len(listings), self.chunk_size):
+                chunk_listings = listings[i:i + self.chunk_size]
                 chunk_number = (i // self.chunk_size) + 1
 
+                # Store listing data in the chunk's urls field (as JSON)
+                # This maintains backward compatibility while storing richer data
                 chunk = ProcessingChunk(
                     batch_id=batch_id,
                     chunk_number=chunk_number,
-                    urls=chunk_urls,
-                    url_count=len(chunk_urls)
+                    urls=chunk_listings,  # Store full listing data as JSON
+                    url_count=len(chunk_listings)
                 )
 
                 session.add(chunk)
@@ -916,7 +973,7 @@ class BatchManager:
             job_id = enqueue_chunk_processing(
                 str(batch_id),
                 str(chunk.chunk_id),
-                chunk.urls
+                chunk.urls  # This now contains listing data
             )
             logger.info(
                 f"Queued chunk {chunk.chunk_number} for batch {batch_id} (job: {job_id})")
@@ -934,7 +991,7 @@ class BatchManager:
             enqueue_chunk_processing(
                 str(batch_id),
                 str(chunk.chunk_id),
-                chunk.urls
+                chunk.urls  # This now contains listing data
             )
 
         logger.info(
@@ -1127,18 +1184,19 @@ batch_manager = BatchManager()
 
 # Job handler functions for the job queue system
 def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Job handler for processing chunks"""
+    """Job handler for processing chunks with listing data"""
     try:
         batch_id = payload.get('batch_id')
         chunk_id = payload.get('chunk_id')
-        urls = payload.get('urls', [])
+        # 'urls' field now contains listing data
+        listings = payload.get('urls', [])
 
-        if not all([batch_id, chunk_id, urls]):
+        if not all([batch_id, chunk_id, listings]):
             raise ValueError(
-                "Missing required parameters: batch_id, chunk_id, or urls")
+                "Missing required parameters: batch_id, chunk_id, or listings")
 
         logger.info(
-            f"Processing chunk {chunk_id} for batch {batch_id} with {len(urls)} URLs")
+            f"Processing chunk {chunk_id} for batch {batch_id} with {len(listings)} listings")
 
         # Import processor here to avoid circular imports
         from .processor import image_processor
@@ -1148,9 +1206,20 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
         # Get cache instance
         cache = get_cache()
 
+        # Extract storefront URLs for processing and caching
+        storefront_urls = []
+        listings_by_url = {}  # Map URLs to their listing data
+
+        for listing in listings:
+            if isinstance(listing, dict):
+                url = listing.get('storefront_photo_url')
+                if url:
+                    storefront_urls.append(url)
+                    listings_by_url[url] = listing
+
         # Filter URLs that need processing (not in cache)
-        urls_to_process = cache.batch_get_missing_urls(urls)
-        cached_results = cache.batch_get_analyses(urls)
+        urls_to_process = cache.batch_get_missing_urls(storefront_urls)
+        cached_results = cache.batch_get_analyses(storefront_urls)
 
         logger.info(
             f"Chunk {chunk_id}: {len(cached_results)} URLs from cache, {len(urls_to_process)} to process")
@@ -1175,11 +1244,11 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                 if result.success and result.analysis:
                     cache.set_analysis(result.url, result.analysis)
 
-        # Combine results
+        # Combine results with listing data
         all_results = []
 
-        # Add cached results
-        for url in urls:
+        # Add cached results with listing data
+        for url in storefront_urls:
             if url in cached_results:
                 # Create result object from cached data
                 from .processor import ProcessingResult
@@ -1190,12 +1259,18 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
                     processing_time=0.0,
                     cache_hit=True
                 )
+                # Attach listing data
+                if url in listings_by_url:
+                    cached_result.listing_data = listings_by_url[url]
                 all_results.append(cached_result)
 
-        # Add new results
-        all_results.extend(new_results)
+        # Add new results with listing data
+        for result in new_results:
+            if result.url in listings_by_url:
+                result.listing_data = listings_by_url[result.url]
+            all_results.append(result)
 
-        # Store results in database
+        # Store results in database with listing data
         _store_chunk_results_in_db(batch_id, chunk_id, all_results)
 
         # Update chunk status
@@ -1213,7 +1288,8 @@ def process_chunk_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
         result = {
             'chunk_id': chunk_id,
             'batch_id': batch_id,
-            'total_urls': len(urls),
+            'total_urls': len(listings),  # Fixed to use listings
+            'total_listings': len(listings),
             'processed_count': len(all_results),
             'successful_count': successful_count,
             'failed_count': failed_count,
@@ -1306,7 +1382,7 @@ def finalize_batch_handler(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _store_chunk_results_in_db(batch_id: str, chunk_id: str, results: List[Any]):
-    """Store chunk processing results in database"""
+    """Store chunk processing results in database with listing data"""
     with db_manager.get_session() as session:
         for result in results:
             # Generate URL hash for deduplication
@@ -1324,6 +1400,15 @@ def _store_chunk_results_in_db(batch_id: str, chunk_id: str, results: List[Any])
                     result, 'processing_time', 0.0),
                 cache_hit=getattr(result, 'cache_hit', False)
             )
+
+            # Add listing data if available
+            if hasattr(result, 'listing_data') and result.listing_data:
+                listing = result.listing_data
+                url_result.serial_number = listing.get('serial_number')
+                url_result.business_name = listing.get('business_name')
+                url_result.input_phone_number = listing.get('phone_number')
+                url_result.storefront_photo_url = listing.get(
+                    'storefront_photo_url')
 
             # Add analysis data if successful
             if result.success and hasattr(result, 'analysis') and result.analysis:

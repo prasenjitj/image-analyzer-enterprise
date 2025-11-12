@@ -1718,14 +1718,12 @@ def create_enterprise_app():
                         filters.append(URLAnalysisResult.batch_id.cast(
                             String).ilike(f'%{batch_id_filter}%'))
 
-                # Phone number filter
+                # Phone number filter - use the normalized boolean column
                 if phone_number_filter == 'true':
-                    filters.append(
-                        URLAnalysisResult.business_contact.isnot(None))
-                    filters.append(URLAnalysisResult.business_contact != '')
+                    filters.append(URLAnalysisResult.phone_number.is_(True))
                 elif phone_number_filter == 'false':
-                    filters.append(or_(URLAnalysisResult.business_contact.is_(None),
-                                       URLAnalysisResult.business_contact == ''))
+                    filters.append(or_(URLAnalysisResult.phone_number.is_(False),
+                                       URLAnalysisResult.phone_number.is_(None)))
 
                 # Apply all filters
                 if filters:
@@ -1751,7 +1749,7 @@ def create_enterprise_app():
                         'text_content': result.text_content,
                         'store_name': result.store_name,
                         'business_contact': result.business_contact,
-                        'phone_number': bool(result.business_contact),
+                        'phone_number': bool(result.phone_number),
                         'image_description': result.image_description,
                         'url': result.url,
                         'processing_time_seconds': result.processing_time_seconds,
@@ -1803,14 +1801,12 @@ def create_enterprise_app():
                 elif store_image_filter == 'false':
                     filters.append(URLAnalysisResult.store_image.is_(False))
 
-                # Phone number filter
+                # Phone number filter - use the normalized boolean column
                 if phone_number_filter == 'true':
-                    filters.append(
-                        URLAnalysisResult.business_contact.isnot(None))
-                    filters.append(URLAnalysisResult.business_contact != '')
+                    filters.append(URLAnalysisResult.phone_number.is_(True))
                 elif phone_number_filter == 'false':
-                    filters.append(or_(URLAnalysisResult.business_contact.is_(
-                        None), URLAnalysisResult.business_contact == ''))
+                    filters.append(or_(URLAnalysisResult.phone_number.is_(False),
+                                       URLAnalysisResult.phone_number.is_(None)))
 
                 # Batch ID filter
                 if batch_id_filter:

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ProcessingResult:
-    """Result of image processing"""
+    """Result of image processing with optional listing data"""
     url: str
     success: bool
     analysis: Optional[Dict[str, Any]] = None
@@ -29,6 +29,8 @@ class ProcessingResult:
     processing_time: float = 0.0
     cache_hit: bool = False
     phone_number: bool = False
+    # Added for listing data support
+    listing_data: Optional[Dict[str, Any]] = None
 
 
 class ImageProcessor:
@@ -514,28 +516,7 @@ class ImageProcessor:
         elif not isinstance(normalized['business_contact'], list):
             normalized['business_contact'] = []
 
-        # Set phone_number if any contact looks like a phone number (digits, optional +, spaces, dashes)
-        phone_re = re.compile(r"\+?\d[\d\s\-()]{5,}\d$")
-        found_phone = False
-        for contact in normalized['business_contact']:
-            if isinstance(contact, str) and phone_re.search(contact.strip()):
-                found_phone = True
-                break
-        # Also search text_content for phone-like tokens
-        if not found_phone:
-            for txt in normalized['text_content']:
-                if isinstance(txt, str) and phone_re.search(txt.strip()):
-                    found_phone = True
-                    break
-
-        normalized['phone_number'] = found_phone
-
-        # Special case: if the API indicated no contact info by returning
-        # various "no contact" phrases in text_content or business_contact,
-        # normalize business_contact to ['no'] and ensure phone_number is False.
-        # This keeps downstream code expecting a boolean phone_number and
-        # provides a clear "no" marker in the business_contact field.
-
+        # First handle "no contact" cases before phone number detection
         # Common phrases that indicate no contact information
         no_contact_phrases = {
             'no result', 'no phone number visible', 'no phone number', 'no contact',
@@ -567,14 +548,36 @@ class ImageProcessor:
         if not contact_items:
             should_set_no_contact = True
         else:
+            # Be permissive: consider substring matches and ignore punctuation
             for c in contact_items:
-                if c.lower() in no_contact_phrases:
-                    should_set_no_contact = True
+                lc = re.sub(r"[^a-z0-9\s+]", "", c.lower()).strip()
+                for phrase in no_contact_phrases:
+                    if phrase in lc:
+                        should_set_no_contact = True
+                        break
+                if should_set_no_contact:
                     break
 
         if should_set_no_contact:
             normalized['business_contact'] = ['no']
             normalized['phone_number'] = False
+        else:
+            # Only check for phone numbers if we don't have a "no contact" case
+            # Set phone_number if any contact looks like a phone number (digits, optional +, spaces, dashes)
+            phone_re = re.compile(r"\+?\d[\d\s\-()]{5,}\d$")
+            found_phone = False
+            for contact in normalized['business_contact']:
+                if isinstance(contact, str) and phone_re.search(contact.strip()):
+                    found_phone = True
+                    break
+            # Also search text_content for phone-like tokens
+            if not found_phone:
+                for txt in normalized['text_content']:
+                    if isinstance(txt, str) and phone_re.search(txt.strip()):
+                        found_phone = True
+                        break
+
+            normalized['phone_number'] = found_phone
 
         # Coerce store_image to boolean (accept 'true'/'false' strings)
         si = normalized.get('store_image')

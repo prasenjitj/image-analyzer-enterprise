@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Analyzer Enterprise - Dashboard</title>
+    <title>Listing Data Analyzer Enterprise - Dashboard</title>
 
     <!-- Modern CSS Framework and Icons -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -270,9 +270,9 @@
         <div class="sidebar-header">
             <div class="sidebar-header-content">
                 <div class="sidebar-header-logo">
-                    <i class="fas fa-images sidebar-header-logo-icon"></i>
+                    <i class="fas fa-store sidebar-header-logo-icon"></i>
                 </div>
-                <span class="sidebar-header-text">ImageAI</span>
+                <span class="sidebar-header-text">ListingAI</span>
             </div>
         </div>
 
@@ -408,13 +408,13 @@
                 <div class="stat-card rounded-2xl p-6" id="stat-urls-processed">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">URLs Processed</p>
+                            <p class="text-sm font-medium text-gray-600 uppercase tracking-wide">Listings Processed</p>
                             <p class="text-3xl font-bold text-gray-900 mt-2 stat-value">{{
                                 system_stats.total_urls_processed |
                                 default(0) | int }}</p>
                         </div>
                         <div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                            <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                            <i class="fas fa-store text-green-600 text-xl"></i>
                         </div>
                     </div>
                     <div class="mt-4 flex items-center text-sm">
@@ -529,9 +529,10 @@
                                 <i class="fas fa-file-csv text-purple-600 text-2xl"></i>
                             </div>
                             <div>
-                                <h4 class="text-lg font-semibold text-gray-900">Drop your CSV file here</h4>
+                                <h4 class="text-lg font-semibold text-gray-900">Drop your Listing CSV file here</h4>
                                 <p class="text-gray-500 mt-1">or click to browse files</p>
-                                <p class="text-sm text-gray-400 mt-2">Supports CSV files up to 100MB</p>
+                                <p class="text-sm text-gray-400 mt-2">Format: Serial No., Business Name, Phone Number,
+                                    StoreFront Photo URL</p>
                             </div>
                             <div class="flex items-center justify-center space-x-4 text-sm text-gray-500">
                                 <span class="flex items-center">

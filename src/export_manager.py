@@ -157,12 +157,13 @@ class ExportManager:
             }
 
     def get_export_template(self, format_type: str = 'csv') -> Dict[str, Any]:
-        """Get template file for data import"""
+        """Get template file for listing data import"""
         if format_type != 'csv':
             raise ValueError("Templates only available for CSV format")
 
-        # Create CSV template with headers
-        headers = ['url', 'batch_name', 'priority']
+        # Create CSV template with listing data headers
+        headers = ['Serial No.', 'Business Name',
+                   'Phone Number', 'StoreFront Photo URL']
 
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
@@ -170,21 +171,30 @@ class ExportManager:
         # Write headers
         writer.writerow(headers)
 
-        # Write example row
+        # Write example rows
         writer.writerow([
-            'https://example.com/image1.jpg',
-            'Example Batch',
-            'normal'
+            '1',
+            'ABC Store',
+            '+1-555-123-4567',
+            'https://example.com/storefront1.jpg'
+        ])
+        writer.writerow([
+            '2',
+            'XYZ Restaurant',
+            '+1-555-987-6543',
+            'https://example.com/storefront2.jpg'
         ])
 
         return {
             'data': csv_buffer.getvalue(),
-            'filename': 'import_template.csv',
+            'filename': 'listing_import_template.csv',
             'content_type': 'text/csv',
             'metadata': {
-                'description': 'Template for importing image URLs',
+                'description': 'Template for importing listing data with storefront photos',
                 'headers': headers,
-                'example_included': True
+                'example_included': True,
+                'required_columns': ['StoreFront Photo URL'],
+                'optional_columns': ['Serial No.', 'Business Name', 'Phone Number']
             }
         }
 
@@ -254,7 +264,7 @@ class ExportManager:
 
     def _generate_csv_data(self, results: List[URLAnalysisResult],
                            batch: ProcessingBatch, include_metadata: bool) -> str:
-        """Generate CSV export data"""
+        """Generate CSV export data with listing data"""
         csv_buffer = io.StringIO()
 
         # Add metadata header if requested
@@ -267,25 +277,30 @@ class ExportManager:
             csv_buffer.write(f"# Batch Status: {batch.status.value}\n")
             csv_buffer.write(f"# \n")
 
-        # CSV headers
+        # CSV headers - updated for listing data
         headers = [
-            'url', 'store_front', 'text_content', 'store_name',
-            'business_contact', 'phone_number', 'image_description', 'error_message',
-            'processing_time_seconds', 'created_at', 'batch_id'
+            'serial_number', 'business_name', 'input_phone_number', 'storefront_photo_url',
+            'store_image_detected', 'ai_detected_text', 'ai_detected_store_name',
+            'ai_detected_contact', 'ai_found_phone_number', 'image_description',
+            'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
         ]
 
         writer = csv.writer(csv_buffer)
         writer.writerow(headers)
 
-        # Write data rows
+        # Write data rows with listing data
         for result in results:
             writer.writerow([
-                result.url,
+                result.serial_number or '',
+                result.business_name or '',
+                result.input_phone_number or '',
+                # Fallback to url if storefront_photo_url is empty
+                result.storefront_photo_url or result.url,
                 'Yes' if result.store_image else 'No',
                 result.text_content or '',
                 result.store_name or '',
                 result.business_contact or '',
-                'Yes' if result.business_contact else 'No',
+                'Yes' if result.phone_number else 'No',
                 result.image_description or '',
                 result.error_message or '',
                 result.processing_time_seconds or 0,
@@ -326,16 +341,19 @@ class ExportManager:
         except ImportError:
             raise ValueError("pandas and openpyxl required for Excel export")
 
-        # Convert results to DataFrame
+        # Convert results to DataFrame with listing data
         data = []
         for result in results:
             data.append({
-                'URL': result.url,
-                'Store Front': 'Yes' if result.store_image else 'No',
-                'Text Content': result.text_content or '',
-                'Store Name': result.store_name or '',
-                'Business Contact': result.business_contact or '',
-                'Phone Number': 'Yes' if result.phone_number else 'No',
+                'Serial Number': result.serial_number or '',
+                'Business Name': result.business_name or '',
+                'Input Phone Number': result.input_phone_number or '',
+                'StoreFront Photo URL': result.storefront_photo_url or result.url,
+                'Store Image Detected': 'Yes' if result.store_image else 'No',
+                'AI Detected Text': result.text_content or '',
+                'AI Detected Store Name': result.store_name or '',
+                'AI Detected Contact': result.business_contact or '',
+                'AI Found Phone Number': 'Yes' if result.phone_number else 'No',
                 'Image Description': result.image_description or '',
                 'Error Message': result.error_message or '',
                 'Processing Time (seconds)': result.processing_time_seconds or 0,
@@ -379,9 +397,10 @@ class ExportManager:
             csv_buffer = io.StringIO()
 
             headers = [
-                'url', 'store_front', 'text_content', 'store_name',
-                'business_contact', 'phone_number', 'image_description', 'error_message',
-                'processing_time_seconds', 'created_at', 'batch_id'
+                'serial_number', 'business_name', 'input_phone_number', 'storefront_photo_url',
+                'store_image_detected', 'ai_detected_text', 'ai_detected_store_name',
+                'ai_detected_contact', 'ai_found_phone_number', 'image_description',
+                'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
             ]
 
             writer = csv.writer(csv_buffer)
@@ -389,7 +408,10 @@ class ExportManager:
 
             for result in results:
                 writer.writerow([
-                    result.url,
+                    result.serial_number or '',
+                    result.business_name or '',
+                    result.input_phone_number or '',
+                    result.storefront_photo_url or result.url,
                     'Yes' if result.store_image else 'No',
                     result.text_content or '',
                     result.store_name or '',

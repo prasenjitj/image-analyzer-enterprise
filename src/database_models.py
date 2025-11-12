@@ -219,7 +219,7 @@ class ProcessingChunk(Base):
 
 
 class URLAnalysisResult(Base):
-    """Enhanced URL analysis results table"""
+    """Enhanced URL analysis results table with listing data support"""
     __tablename__ = 'url_analysis_results'
 
     # Primary identification
@@ -235,7 +235,13 @@ class URLAnalysisResult(Base):
     chunk_id = Column(UUID(as_uuid=True), ForeignKey(
         'processing_chunks.chunk_id'), nullable=True)
 
-    # Analysis results
+    # Listing Data - Original data from CSV
+    serial_number = Column(String(100), nullable=True)
+    business_name = Column(String(500), nullable=True)
+    input_phone_number = Column(String(50), nullable=True)
+    storefront_photo_url = Column(Text, nullable=True)
+
+    # Analysis results (from AI processing of storefront photo)
     analysis_result = Column(JSON, nullable=True)
     store_image = Column(Boolean, nullable=True)
     text_content = Column(Text, nullable=True)
@@ -266,6 +272,8 @@ class URLAnalysisResult(Base):
         Index('idx_chunk_id', 'chunk_id'),
         Index('idx_success_created', 'success', 'created_at'),
         Index('idx_url_hash_batch', 'url_hash', 'batch_id'),
+        Index('idx_serial_number', 'serial_number'),
+        Index('idx_business_name', 'business_name'),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -275,6 +283,12 @@ class URLAnalysisResult(Base):
             'url': self.url,
             'batch_id': str(self.batch_id) if self.batch_id else None,
             'chunk_id': str(self.chunk_id) if self.chunk_id else None,
+            # Listing data from CSV
+            'serial_number': self.serial_number,
+            'business_name': self.business_name,
+            'input_phone_number': self.input_phone_number,
+            'storefront_photo_url': self.storefront_photo_url,
+            # Analysis results
             'analysis_result': self.analysis_result,
             'store_image': self.store_image,
             'text_content': self.text_content,

@@ -7,7 +7,7 @@ import time
 import traceback
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Union
 from dataclasses import dataclass, asdict
 from enum import Enum
 import hashlib
@@ -406,13 +406,13 @@ class BackgroundWorker:
 job_queue = JobQueue()
 
 
-def enqueue_chunk_processing(batch_id: str, chunk_id: str, urls: List[str]) -> str:
-    """Enqueue chunk processing job"""
+def enqueue_chunk_processing(batch_id: str, chunk_id: str, data: Union[List[str], List[Dict[str, str]]]) -> str:
+    """Enqueue chunk processing job with URL strings or listing data"""
     payload = {
         'batch_id': batch_id,
         'chunk_id': chunk_id,
-        'urls': urls,
-        'chunk_size': len(urls)
+        'urls': data,  # Can contain either URL strings or listing dictionaries
+        'chunk_size': len(data)
     }
 
     return job_queue.enqueue_job('chunk_processing', payload, priority=1)

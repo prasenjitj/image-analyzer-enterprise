@@ -11,7 +11,7 @@ import signal
 import sys
 import hashlib
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 import multiprocessing as mp
 
 from .enterprise_config import config
@@ -40,12 +40,29 @@ class ChunkProcessor:
 
         logger.info(f"ChunkProcessor {worker_id} initialized")
 
-    async def process_chunk(self, batch_id: str, chunk_id: str, urls: List[str]) -> Dict[str, Any]:
-        """Process a chunk of URLs"""
+    async def process_chunk(self, batch_id: str, chunk_id: str, data: List[Any]) -> Dict[str, Any]:
+        """Process a chunk of URLs or listing data"""
         chunk_start_time = time.time()
 
-        logger.info(
-            f"Worker {self.worker_id} processing chunk {chunk_id} with {len(urls)} URLs")
+        # Extract URLs and build mapping for listing data
+        if data and isinstance(data[0], dict):
+            # Handle listing data
+            urls = []
+            listings_by_url = {}
+            for listing in data:
+                url = listing.get('storefront_photo_url')
+                if url:
+                    urls.append(url)
+                    listings_by_url[url] = listing
+
+            logger.info(
+                f"Worker {self.worker_id} processing chunk {chunk_id} with {len(data)} listings ({len(urls)} valid URLs)")
+        else:
+            # Handle legacy URL strings
+            urls = data
+            listings_by_url = {}
+            logger.info(
+                f"Worker {self.worker_id} processing chunk {chunk_id} with {len(urls)} URLs")
 
         # Update chunk status to processing
         self._update_chunk_status(
@@ -101,14 +118,22 @@ class ChunkProcessor:
                             'success': True,
                             'analysis': cached_analysis,
                             'error': None,
-                            'processing_time': 0.0
+                            'processing_time': 0.0,
+                            # Add listing data if available
+                            'listing_data': listings_by_url.get(url)
                         })()
                         cached_results.append(cached_result)
 
             all_results.extend(cached_results)
 
+            # Add listing data to new results
+            for result in all_results:
+                if hasattr(result, 'url') and result.url in listings_by_url:
+                    result.listing_data = listings_by_url[result.url]
+
             # Store results in database
-            self._store_chunk_results(batch_id, chunk_id, all_results)
+            self._store_chunk_results(
+                batch_id, chunk_id, all_results, listings_by_url)
 
             # Calculate statistics
             successful_count = sum(1 for r in all_results if r.success)
@@ -198,8 +223,11 @@ class ChunkProcessor:
                 # Progress percentage is calculated by the model property
                 session.commit()
 
-    def _store_chunk_results(self, batch_id: str, chunk_id: str, results: List[Any]):
-        """Store processing results in database"""
+    def _store_chunk_results(self, batch_id: str, chunk_id: str, results: List[Any], listings_by_url: Dict[str, Dict] = None):
+        """Store processing results in database with listing data"""
+        if listings_by_url is None:
+            listings_by_url = {}
+
         with db_manager.get_session() as session:
             # First validate that the batch exists
             batch = session.query(ProcessingBatch).filter_by(
@@ -214,9 +242,21 @@ class ChunkProcessor:
 
             for result in results:
                 try:
+                    # Safely obtain URL value (support objects and dicts)
+                    url_value = None
+                    if isinstance(result, dict):
+                        url_value = result.get('url')
+                    else:
+                        url_value = getattr(result, 'url', None)
+
+                    if not url_value or not isinstance(url_value, str):
+                        logger.error(
+                            f"Skipping malformed result without valid URL: {url_value}")
+                        continue
+
                     # Generate URL hash for database constraint
                     url_hash = hashlib.sha256(
-                        result.url.encode('utf-8')).hexdigest()
+                        url_value.encode('utf-8')).hexdigest()
 
                     # Check if this URL already has a result for this batch
                     existing = session.query(URLAnalysisResult).filter_by(
@@ -229,16 +269,25 @@ class ChunkProcessor:
                             f"Skipping duplicate URL result: {result.url}")
                         continue
 
+                    # Get listing data for this URL
+                    listing_data = listings_by_url.get(url_value, {})
+
                     # Create URLAnalysisResult record
                     url_result = URLAnalysisResult(
                         batch_id=batch_id,
                         chunk_id=chunk_id,
-                        url=result.url,
+                        url=url_value,
                         url_hash=url_hash,
                         success=result.success,
                         error_message=result.error if not result.success else None,
                         processing_time_seconds=getattr(
-                            result, 'processing_time', 0.0)
+                            result, 'processing_time', 0.0),
+                        # Add listing data fields
+                        serial_number=listing_data.get('serial_number'),
+                        business_name=listing_data.get('business_name'),
+                        input_phone_number=listing_data.get('phone_number'),
+                        storefront_photo_url=listing_data.get(
+                            'storefront_photo_url')
                     )
 
                     # Add analysis data if successful
@@ -267,7 +316,11 @@ class ChunkProcessor:
                                 business_contact_list) if business_contact_list else ''
                         url_result.image_description = analysis.get(
                             'image_description')
-                        url_result.raw_analysis = analysis
+                        # Store structured analysis in the proper column
+                        url_result.analysis_result = analysis
+                        # Ensure phone_number column reflects normalized value
+                        url_result.phone_number = bool(
+                            analysis.get('phone_number', False))
 
                     session.add(url_result)
 
@@ -381,13 +434,14 @@ class BackgroundWorker:
                 # Extract job parameters
                 batch_id = job.payload.get('batch_id')
                 chunk_id = job.payload.get('chunk_id')
-                urls = job.payload.get('urls', [])
+                # Can be URLs or listing data
+                data = job.payload.get('urls', [])
 
-                if not all([batch_id, chunk_id, urls]):
+                if not all([batch_id, chunk_id, data]):
                     raise ValueError("Missing required job parameters")
 
                 # Process the chunk
-                result = await self.chunk_processor.process_chunk(batch_id, chunk_id, urls)
+                result = await self.chunk_processor.process_chunk(batch_id, chunk_id, data)
 
                 # Mark job as completed
                 job_queue.complete_job(job.job_id, result)

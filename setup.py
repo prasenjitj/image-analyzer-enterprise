@@ -208,25 +208,64 @@ class EnterpriseSetup:
                 engine = create_engine(db_config)
 
             with engine.connect() as conn:
-                # Check if phone_number column exists in url_analysis_results
-                result = conn.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'url_analysis_results' 
-                    AND column_name = 'phone_number'
-                """))
+                # Define all the new listing data columns that need to be added
+                new_columns = [
+                    ('serial_number', 'VARCHAR(100)'),
+                    ('business_name', 'VARCHAR(500)'),
+                    ('input_phone_number', 'VARCHAR(50)'),
+                    ('storefront_photo_url', 'TEXT'),
+                    ('phone_number', 'BOOLEAN')
+                ]
 
-                if not result.fetchone():
-                    logger.info(
-                        "Adding missing phone_number column to url_analysis_results table...")
-                    conn.execute(text("""
-                        ALTER TABLE url_analysis_results 
-                        ADD COLUMN phone_number BOOLEAN
-                    """))
-                    conn.commit()
-                    logger.info("✓ Added phone_number column")
-                else:
-                    logger.info("✓ phone_number column already exists")
+                # Check and add each missing column
+                for column_name, column_type in new_columns:
+                    result = conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'url_analysis_results' 
+                        AND column_name = :column_name
+                    """), {"column_name": column_name})
+
+                    if not result.fetchone():
+                        logger.info(
+                            f"Adding missing {column_name} column to url_analysis_results table...")
+                        conn.execute(text(f"""
+                            ALTER TABLE url_analysis_results 
+                            ADD COLUMN {column_name} {column_type}
+                        """))
+                        conn.commit()
+                        logger.info(f"✓ Added {column_name} column")
+                    else:
+                        logger.info(f"✓ {column_name} column already exists")
+
+                # Add new indexes for performance
+                indexes_to_create = [
+                    ('idx_serial_number', 'serial_number'),
+                    ('idx_business_name', 'business_name')
+                ]
+
+                for index_name, column_name in indexes_to_create:
+                    try:
+                        # Check if index exists
+                        result = conn.execute(text("""
+                            SELECT indexname 
+                            FROM pg_indexes 
+                            WHERE tablename = 'url_analysis_results' 
+                            AND indexname = :index_name
+                        """), {"index_name": index_name})
+
+                        if not result.fetchone():
+                            logger.info(f"Creating index {index_name}...")
+                            conn.execute(text(f"""
+                                CREATE INDEX {index_name} ON url_analysis_results ({column_name})
+                            """))
+                            conn.commit()
+                            logger.info(f"✓ Created index {index_name}")
+                        else:
+                            logger.info(f"✓ Index {index_name} already exists")
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not create index {index_name}: {e}")
 
             engine.dispose()
             return True
