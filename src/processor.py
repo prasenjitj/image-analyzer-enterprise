@@ -199,8 +199,23 @@ class ImageProcessor:
                           None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
-"Analyze this image and determine if it shows a physical store or business location. Please provide a JSON response with the following structure: {\"store_image\": true/false, \"text_content\": \"any visible text in the image\", \"store_name\": \"name of the store if visible\", \"business_contact\": \"phone number, email, or website if visible\", \"image_description\": \"brief description of what the image shows\"} Guidelines: - store_image should be true if this shows a physical retail store, restaurant, shop, or business establishment - Extract any visible text including store names, signs, phone numbers, websites - Be concise but accurate in descriptions - If uncertain about store_image, err on the side of false"
-"""
+            Analyze this image and determine if it shows a physical store or business location.
+
+            Please provide a JSON response with the following structure:
+            {
+                "store_image": true/false,
+                "text_content": "Uniquely visible text in the image",
+                "store_name": "name of the store if visible",
+                "business_contact": "phone number if visible",
+                "image_description": "brief description of what the image shows"
+            }
+
+            Guidelines:
+            - store_image should be true if this shows a physical retail store, restaurant, shop, business establishment or stall etc..
+            - Extract any visible text including store names, signs, phone numbers, websites
+            - Be concise but accurate in descriptions
+            - If uncertain about store_image, err on the side of false
+        """.strip()
 
         try:
             # Attempt to download and resize the image before making the API request.
@@ -359,9 +374,12 @@ class ImageProcessor:
 
                     try:
                         analysis_data = json.loads(analysis_text)
-                    except json.JSONDecodeError:
-                        raise Exception(
-                            f"Failed to parse API response JSON: {analysis_text}")
+                    except Exception:
+                        # Attempt to recover using the more flexible extractor
+                        analysis_data = self._parse_api_response(analysis_text)
+                        if analysis_data is None:
+                            raise Exception(
+                                f"Failed to parse API response JSON: {analysis_text}")
                 else:
                     analysis_data = analysis_text
             else:
@@ -381,30 +399,91 @@ class ImageProcessor:
 
     def _parse_api_response(self, response_text: str) -> Dict[str, Any]:
         """Parse API response that might be wrapped in markdown"""
-        # Try to extract JSON from markdown code blocks
-        if '```json' in response_text:
-            # Extract content between ```json and ```
-            start = response_text.find('```json')
-            end = response_text.find('```', start + 7)
-            if end != -1:
-                json_content = response_text[start + 7:end].strip()
-                return json.loads(json_content)
-        elif '```' in response_text:
-            # Extract content between ``` and ```
-            start = response_text.find('```')
-            end = response_text.find('```', start + 3)
-            if end != -1:
-                json_content = response_text[start + 3:end].strip()
-                return json.loads(json_content)
+        if not response_text or not response_text.strip():
+            return None
 
-        # Try to parse the entire response as JSON
+        # 1) fenced JSON (```json or ```)
+        m = re.search(
+            r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", response_text, re.DOTALL | re.IGNORECASE)
+        if m:
+            return json.loads(m.group(1))
+
+        # 2) first inline JSON object/array
+        m = re.search(r"(\{.*\}|\[.*\])", response_text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(1))
+            except Exception:
+                # continue to other strategies
+                pass
+
+        # 3) plain key: value pairs (also supports responses prefixed with 'Final response:')
+        #    Example format:
+        #    Final response: store_image: true
+        #    text_content: "Name", "Tagline", "12345"
+        txt = response_text
+        m = re.search(r"Final response:\s*(.*)$",
+                      response_text, re.IGNORECASE | re.DOTALL)
+        if m:
+            txt = m.group(1)
+
+        parsed = {}
+        for raw_line in txt.splitlines():
+            line = raw_line.strip()
+            if not line or ':' not in line:
+                continue
+            key, val = line.split(':', 1)
+            key = key.strip()
+            val = val.strip()
+            raw_val = val
+
+            # Special handling for known fields
+            if key in ('text_content', 'business_contact'):
+                # Prefer quoted substrings (keeps commas inside quotes intact)
+                quoted = re.findall(r'"([^\"]+)"', raw_val)
+                if quoted:
+                    parsed[key] = [q.strip() for q in quoted if q.strip()]
+                else:
+                    # Treat common 'None visible' or 'None' as empty
+                    if raw_val.strip().lower() in ('none', 'none visible', 'not visible', 'no', 'n/a'):
+                        parsed[key] = []
+                    elif ',' in raw_val:
+                        items = [v.strip().strip('"').strip("'")
+                                 for v in raw_val.split(',') if v.strip()]
+                        parsed[key] = items
+                    elif raw_val:
+                        parsed[key] = [raw_val]
+                    else:
+                        parsed[key] = []
+            elif key == 'store_name':
+                # If multiple quoted names present, join them into a single string separated by '; '
+                quoted = re.findall(r'"([^\"]+)"', raw_val)
+                if quoted:
+                    if len(quoted) == 1:
+                        parsed[key] = quoted[0].strip()
+                    else:
+                        parsed[key] = '; '.join(q.strip()
+                                                for q in quoted if q.strip())
+                else:
+                    # fallback: remove surrounding quotes if present
+                    if (raw_val.startswith('"') and raw_val.endswith('"')) or (raw_val.startswith("'") and raw_val.endswith("'")):
+                        parsed[key] = raw_val[1:-1].strip()
+                    else:
+                        parsed[key] = raw_val
+            else:
+                parsed[key] = val
+
+        if parsed:
+            return parsed
+
+        # 4) last resort: try parsing entire response as JSON
         return json.loads(response_text)
 
     def _normalize_api_response(self, api_data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize API response to expected format"""
         # Ensure all expected fields are present with defaults
         normalized = {
-            'store_image': bool(api_data.get('store_image', False)),
+            'store_image': api_data.get('store_image', False),
             'text_content': api_data.get('text_content', []),
             'store_name': api_data.get('store_name', ''),
             'business_contact': api_data.get('business_contact', []),
@@ -412,25 +491,55 @@ class ImageProcessor:
             'phone_number': False
         }
 
-        # Ensure text_content is a list
+        # Ensure text_content is a list; split comma-separated strings if present
         if isinstance(normalized['text_content'], str):
-            normalized['text_content'] = [normalized['text_content']]
+            if ',' in normalized['text_content']:
+                normalized['text_content'] = [t.strip().strip('"').strip(
+                    "'") for t in normalized['text_content'].split(',') if t.strip()]
+            else:
+                normalized['text_content'] = [normalized['text_content']]
         elif not isinstance(normalized['text_content'], list):
             normalized['text_content'] = []
 
-        # Ensure business_contact is a list
+        # Ensure business_contact is a list; split comma-separated strings if present
         if isinstance(normalized['business_contact'], str):
-            normalized['business_contact'] = [normalized['business_contact']]
+            if ',' in normalized['business_contact']:
+                normalized['business_contact'] = [t.strip().strip('"').strip(
+                    "'") for t in normalized['business_contact'].split(',') if t.strip()]
+            else:
+                normalized['business_contact'] = [
+                    normalized['business_contact']]
         elif not isinstance(normalized['business_contact'], list):
             normalized['business_contact'] = []
 
-        # Set phone_number based on whether business_contact contains phone-like data
-        normalized['phone_number'] = bool(normalized['business_contact'])
+        # Set phone_number if any contact looks like a phone number (digits, optional +, spaces, dashes)
+        phone_re = re.compile(r"\+?\d[\d\s\-()]{5,}\d$")
+        found_phone = False
+        for contact in normalized['business_contact']:
+            if isinstance(contact, str) and phone_re.search(contact.strip()):
+                found_phone = True
+                break
+        # Also search text_content for phone-like tokens
+        if not found_phone:
+            for txt in normalized['text_content']:
+                if isinstance(txt, str) and phone_re.search(txt.strip()):
+                    found_phone = True
+                    break
+
+        normalized['phone_number'] = found_phone
+
+        # Coerce store_image to boolean (accept 'true'/'false' strings)
+        si = normalized.get('store_image')
+        if isinstance(si, str):
+            normalized['store_image'] = si.strip(
+            ).lower() in ('true', '1', 'yes')
+        else:
+            normalized['store_image'] = bool(si)
 
         return normalized
 
     def get_url_hash(self, url: str) -> str:
-        """Generate hash for URL (for caching, non-security use)"""
+        """Generate hash for URL(for caching, non-security use)"""
         return hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
 
 

@@ -180,6 +180,7 @@ cloudbuild.yaml
 # Local-only files and local python envs
 .local/
 .venv/
+tmp/
 
 # Node/npm
 node_modules/
