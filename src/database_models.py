@@ -252,6 +252,9 @@ class URLAnalysisResult(Base):
     # Store front matching fields (0-100 score and categorical label)
     store_front_match_score = Column(Integer, nullable=True)
     store_front_match = Column(String(50), nullable=True)
+    # Phone number comparison fields
+    phone_match_score = Column(Integer, nullable=True)
+    phone_match = Column(String(50), nullable=True)
 
     # Processing metadata
     success = Column(Boolean, nullable=False)
@@ -301,6 +304,8 @@ class URLAnalysisResult(Base):
             'image_description': self.image_description,
             'store_front_match_score': self.store_front_match_score,
             'store_front_match': self.store_front_match,
+            'phone_match_score': self.phone_match_score,
+            'phone_match': self.phone_match,
             'success': self.success,
             'error_message': self.error_message,
             'processing_time_seconds': self.processing_time_seconds,

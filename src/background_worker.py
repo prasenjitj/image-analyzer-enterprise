@@ -323,6 +323,73 @@ class ChunkProcessor:
                         url_result.phone_number = bool(
                             analysis.get('phone_number', False))
 
+                        # Compute phone number matching between CSV input and AI-extracted contact
+                        try:
+                            import re
+                            # Helper to normalize to digits only
+
+                            def _digits_only(s: str) -> str:
+                                if not s:
+                                    return ''
+                                return re.sub(r"\D", '', str(s))
+
+                            # Get CSV/listing phone (prefer listing_data key or already assigned input_phone_number)
+                            csv_phone_raw = listing_data.get(
+                                'phone_number') or url_result.input_phone_number or ''
+                            csv_norm = _digits_only(csv_phone_raw)
+
+                            # Gather detected contacts from analysis (may be list or string)
+                            detected_contacts = []
+                            ac = analysis.get('business_contact', [])
+                            if isinstance(ac, list):
+                                detected_contacts = [str(x) for x in ac if x]
+                            elif isinstance(ac, str) and ac.strip():
+                                # split comma separated values if present
+                                detected_contacts = [
+                                    t.strip() for t in ac.split(',') if t.strip()]
+                            elif url_result.business_contact:
+                                detected_contacts = [
+                                    t.strip() for t in url_result.business_contact.split(',') if t.strip()]
+
+                            best_score = 0
+                            best_contact_norm = ''
+
+                            if csv_norm and detected_contacts:
+                                # Compute best score among detected contacts
+                                for contact in detected_contacts:
+                                    contact_norm = _digits_only(contact)
+                                    if not contact_norm:
+                                        continue
+                                    try:
+                                        from rapidfuzz.fuzz import token_set_ratio
+                                        score = int(token_set_ratio(
+                                            csv_norm, contact_norm))
+                                    except Exception:
+                                        # Fallback to difflib ratio scaled to 0-100
+                                        ratio = difflib.SequenceMatcher(
+                                            None, csv_norm, contact_norm).ratio()
+                                        score = int(round(ratio * 100))
+
+                                    if score > best_score:
+                                        best_score = score
+                                        best_contact_norm = contact_norm
+
+                                # Strict equality check for categorical match
+                                phone_match_label = 'Match' if any(_digits_only(
+                                    c) == csv_norm for c in detected_contacts) else 'Mismatch'
+                            else:
+                                # Either side empty -> mismatch and zero score
+                                best_score = 0
+                                phone_match_label = 'Mismatch'
+
+                            # Assign to result (ensure 0-100 integer)
+                            url_result.phone_match_score = int(
+                                best_score) if best_score is not None else 0
+                            url_result.phone_match = phone_match_label
+                        except Exception:
+                            logger.exception(
+                                'Failed to compute phone match for %s', url_value)
+
                     # Compute store front fuzzy match between listing business_name and AI-detected store_name
                     try:
                         listing_name = (listing_data.get(

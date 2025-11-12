@@ -1753,6 +1753,8 @@ def create_enterprise_app():
                         'text_content': result.text_content,
                         'store_name': result.store_name,
                         'business_contact': result.business_contact,
+                        'phone_match_score': getattr(result, 'phone_match_score', None),
+                        'phone_match': getattr(result, 'phone_match', None),
                         'store_front_match_score': getattr(result, 'store_front_match_score', None),
                         'store_front_match': getattr(result, 'store_front_match', None),
                         'phone_number': bool(result.phone_number),
@@ -1841,7 +1843,7 @@ def create_enterprise_app():
 
                 # Write header (include original CSV/listing input fields)
                 headers = ['serial_number', 'business_name', 'input_phone_number', 'success', 'store_front', 'text_content', 'store_name', 'business_contact', 'phone_number',
-                           'image_description', 'store_front_match_score', 'store_front_match', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
+                           'image_description', 'phone_match_score', 'phone_match', 'store_front_match_score', 'store_front_match', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
                 writer.writerow(headers)
 
                 # Write data rows
@@ -1857,6 +1859,9 @@ def create_enterprise_app():
                         result.business_contact or '',
                         'true' if result.phone_number else 'false',
                         result.image_description or '',
+                        result.phone_match_score if getattr(
+                            result, 'phone_match_score', None) is not None else '',
+                        result.phone_match or '',
                         result.store_front_match_score if getattr(
                             result, 'store_front_match_score', None) is not None else '',
                         result.store_front_match or '',

@@ -708,6 +708,8 @@ class BatchManager:
                         'error_message': result.error_message,
                         'store_front_match_score': getattr(result, 'store_front_match_score', None),
                         'store_front_match': getattr(result, 'store_front_match', None),
+                        'phone_match_score': getattr(result, 'phone_match_score', None),
+                        'phone_match': getattr(result, 'phone_match', None),
                         'processing_time_seconds': result.processing_time_seconds
                     } for result in results
                 ]
@@ -1425,6 +1427,64 @@ def _store_chunk_results_in_db(batch_id: str, chunk_id: str, results: List[Any])
                 url_result.image_description = analysis.get(
                     'image_description')
                 url_result.analysis_result = analysis
+
+                # Compute phone matching between CSV input and AI-extracted contact
+                try:
+                    import re
+
+                    def _digits_only(s: str) -> str:
+                        if not s:
+                            return ''
+                        return re.sub(r"\D", '', str(s))
+
+                    csv_phone_raw = listing.get('phone_number') if listing else (
+                        url_result.input_phone_number or '')
+                    csv_norm = _digits_only(csv_phone_raw)
+
+                    detected_contacts = []
+                    ac = analysis.get('business_contact', [])
+                    if isinstance(ac, list):
+                        detected_contacts = [str(x) for x in ac if x]
+                    elif isinstance(ac, str) and ac.strip():
+                        detected_contacts = [t.strip()
+                                             for t in ac.split(',') if t.strip()]
+                    elif url_result.business_contact:
+                        detected_contacts = [
+                            t.strip() for t in url_result.business_contact.split(',') if t.strip()]
+
+                    best_score = 0
+                    phone_match_label = 'Mismatch'
+
+                    if csv_norm and detected_contacts:
+                        for contact in detected_contacts:
+                            contact_norm = _digits_only(contact)
+                            if not contact_norm:
+                                continue
+                            try:
+                                from rapidfuzz.fuzz import token_set_ratio
+                                score = int(token_set_ratio(
+                                    csv_norm, contact_norm))
+                            except Exception:
+                                import difflib
+                                ratio = difflib.SequenceMatcher(
+                                    None, csv_norm, contact_norm).ratio()
+                                score = int(round(ratio * 100))
+
+                            if score > best_score:
+                                best_score = score
+
+                        phone_match_label = 'Match' if any(_digits_only(
+                            c) == csv_norm for c in detected_contacts) else 'Mismatch'
+                    else:
+                        best_score = 0
+                        phone_match_label = 'Mismatch'
+
+                    url_result.phone_match_score = int(
+                        best_score) if best_score is not None else 0
+                    url_result.phone_match = phone_match_label
+                except Exception:
+                    # Do not block storing results if phone matching fails
+                    pass
 
             session.add(url_result)
 

@@ -45,7 +45,10 @@ def run_migration():
                 ('business_name', 'VARCHAR(500)'),
                 ('input_phone_number', 'VARCHAR(50)'),
                 ('storefront_photo_url', 'TEXT'),
-                ('phone_number', 'BOOLEAN')
+                ('phone_number', 'BOOLEAN'),
+                # Phone match fields added by feature: phone_match_score (int) and phone_match (categorical)
+                ('phone_match_score', 'INTEGER'),
+                ('phone_match', 'VARCHAR(50)')
             ]
 
             print("Checking for missing columns...")

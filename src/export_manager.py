@@ -282,6 +282,7 @@ class ExportManager:
             'serial_number', 'business_name', 'input_phone_number', 'storefront_photo_url',
             'store_image_detected', 'ai_detected_text', 'ai_detected_store_name',
             'ai_detected_contact', 'ai_found_phone_number', 'image_description',
+            'phone_match_score', 'phone_match',
             'store_front_match_score', 'store_front_match',
             'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
         ]
@@ -303,6 +304,10 @@ class ExportManager:
                 result.business_contact or '',
                 'Yes' if result.phone_number else 'No',
                 result.image_description or '',
+                # Phone match fields
+                result.phone_match_score if getattr(
+                    result, 'phone_match_score', None) is not None else '',
+                result.phone_match or '',
                 result.store_front_match_score if getattr(
                     result, 'store_front_match_score', None) is not None else '',
                 result.store_front_match or '',
@@ -358,6 +363,8 @@ class ExportManager:
                 'AI Detected Store Name': result.store_name or '',
                 'AI Detected Contact': result.business_contact or '',
                 'AI Found Phone Number': 'Yes' if result.phone_number else 'No',
+                'Phone Match Score': result.phone_match_score if getattr(result, 'phone_match_score', None) is not None else '',
+                'Phone Match': result.phone_match or '',
                 'Image Description': result.image_description or '',
                 'Store Front Match Score': result.store_front_match_score if getattr(result, 'store_front_match_score', None) is not None else '',
                 'Store Front Match': result.store_front_match or '',
@@ -406,7 +413,7 @@ class ExportManager:
                 'serial_number', 'business_name', 'input_phone_number', 'storefront_photo_url',
                 'store_image_detected', 'ai_detected_text', 'ai_detected_store_name',
                 'ai_detected_contact', 'ai_found_phone_number', 'image_description',
-                'store_front_match_score', 'store_front_match', 'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
+                'phone_match_score', 'phone_match', 'store_front_match_score', 'store_front_match', 'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
             ]
 
             writer = csv.writer(csv_buffer)
@@ -424,6 +431,9 @@ class ExportManager:
                     result.business_contact or '',
                     'Yes' if result.phone_number else 'No',
                     result.image_description or '',
+                    result.phone_match_score if getattr(
+                        result, 'phone_match_score', None) is not None else '',
+                    result.phone_match or '',
                     result.store_front_match_score if getattr(
                         result, 'store_front_match_score', None) is not None else '',
                     result.store_front_match or '',

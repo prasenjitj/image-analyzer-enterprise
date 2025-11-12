@@ -214,7 +214,10 @@ class EnterpriseSetup:
                     ('business_name', 'VARCHAR(500)'),
                     ('input_phone_number', 'VARCHAR(50)'),
                     ('storefront_photo_url', 'TEXT'),
-                    ('phone_number', 'BOOLEAN')
+                    ('phone_number', 'BOOLEAN'),
+                    # Phone match fields (added for phone matching feature)
+                    ('phone_match_score', 'INTEGER'),
+                    ('phone_match', 'VARCHAR(50)')
                 ]
 
                 # Check and add each missing column
