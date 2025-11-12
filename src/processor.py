@@ -199,7 +199,7 @@ class ImageProcessor:
                           None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
-            Analyze this image and determine if it shows a physical store or business location.
+            Analyze this image and determine if it shows a physical store.
 
             Please provide a JSON response with the following structure:
             {
@@ -211,10 +211,12 @@ class ImageProcessor:
             }
 
             Guidelines:
-            - store_image should be true if this shows a physical retail store, restaurant, shop, business establishment or stall etc..
-            - Extract any visible text including store names, signs, phone numbers, websites
+            - store_image should be true if this shows a physical retail store, restaurant, shop, business establishment or stall etc
+            - Extract any visible text including store names, signs and contact phone numbers
             - Be concise but accurate in descriptions
-            - If uncertain about store_image, err on the side of false
+            - If uncertain about store_image, return "No Result" 
+            - keep content in english only.
+            If no text is visible, return empty string for text_content, store_name and business_contact. Always respond in valid JSON format without any additional commentary or explanation.
         """.strip()
 
         try:
@@ -527,6 +529,52 @@ class ImageProcessor:
                     break
 
         normalized['phone_number'] = found_phone
+
+        # Special case: if the API indicated no contact info by returning
+        # various "no contact" phrases in text_content or business_contact,
+        # normalize business_contact to ['no'] and ensure phone_number is False.
+        # This keeps downstream code expecting a boolean phone_number and
+        # provides a clear "no" marker in the business_contact field.
+
+        # Common phrases that indicate no contact information
+        no_contact_phrases = {
+            'no result', 'no phone number visible', 'no phone number', 'no contact',
+            'not visible', 'none visible', 'none', 'n/a', 'na', 'no', 'null'
+        }
+
+        should_set_no_contact = False
+
+        # Check text_content for no-contact indicators
+        try:
+            text_items = [t.strip() for t in normalized.get(
+                'text_content', []) if isinstance(t, str) and t.strip()]
+        except Exception:
+            text_items = []
+
+        for t in text_items:
+            if t.lower() in no_contact_phrases:
+                should_set_no_contact = True
+                break
+
+        # Check business_contact for no-contact indicators or empty/null values
+        try:
+            contact_items = [c.strip() for c in normalized.get(
+                'business_contact', []) if isinstance(c, str) and c.strip()]
+        except Exception:
+            contact_items = []
+
+        # If business_contact is empty or contains only no-contact phrases
+        if not contact_items:
+            should_set_no_contact = True
+        else:
+            for c in contact_items:
+                if c.lower() in no_contact_phrases:
+                    should_set_no_contact = True
+                    break
+
+        if should_set_no_contact:
+            normalized['business_contact'] = ['no']
+            normalized['phone_number'] = False
 
         # Coerce store_image to boolean (accept 'true'/'false' strings)
         si = normalized.get('store_image')
