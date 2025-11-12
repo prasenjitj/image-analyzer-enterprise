@@ -13,6 +13,7 @@ import hashlib
 from datetime import datetime
 from typing import List, Dict, Any, Union
 import multiprocessing as mp
+import difflib
 
 from .enterprise_config import config
 from .database_models import (
@@ -321,6 +322,53 @@ class ChunkProcessor:
                         # Ensure phone_number column reflects normalized value
                         url_result.phone_number = bool(
                             analysis.get('phone_number', False))
+
+                    # Compute store front fuzzy match between listing business_name and AI-detected store_name
+                    try:
+                        listing_name = (listing_data.get(
+                            'business_name') or '') if listing_data else ''
+                        detected_name = (getattr(result, 'analysis', {}) or {}).get(
+                            'store_name') if hasattr(result, 'analysis') else None
+                        # If analysis present, prefer stored url_result.store_name
+                        if url_result.store_name:
+                            detected_name = url_result.store_name
+
+                        def _normalize(s: str) -> str:
+                            if not s:
+                                return ''
+                            # Lowercase, strip punctuation, collapse whitespace
+                            import re
+                            s2 = re.sub(r"[^\w\s]", "", s.lower())
+                            s2 = re.sub(r"\s+", " ", s2).strip()
+                            return s2
+
+                        ln = _normalize(listing_name)
+                        dn = _normalize(detected_name) if detected_name else ''
+
+                        score = 0
+                        label = 'Mis Match'
+
+                        if ln and dn:
+                            ratio = difflib.SequenceMatcher(
+                                None, ln, dn).ratio()
+                            score = int(round(ratio * 100))
+                            if score >= 80:
+                                label = 'Matched'
+                            elif score >= 70:
+                                label = 'Partial Match'
+                            else:
+                                label = 'Mis Match'
+                        else:
+                            # Missing either side: treat as Mis Match with score 0
+                            score = 0
+                            label = 'Mis Match'
+
+                        url_result.store_front_match_score = score
+                        url_result.store_front_match = label
+                    except Exception:
+                        # Do not block storing results if matching fails
+                        logger.exception(
+                            'Failed to compute store front match for %s', url_value)
 
                     session.add(url_result)
 

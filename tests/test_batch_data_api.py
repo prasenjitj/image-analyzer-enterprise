@@ -189,7 +189,8 @@ class TestBatchDataExportEndpoint:
                        for h in lines[0].split(',')]  # Strip whitespace
             expected_headers = ['success', 'store_image', 'text_content', 'store_name',
                                 'business_contact', 'image_description', 'url',
-                                'processing_time_seconds', 'created_at', 'batch_id']
+                                'processing_time_seconds', 'created_at', 'batch_id',
+                                'store_front_match_score', 'store_front_match']
             assert headers == expected_headers
 
     def test_batch_data_export_csv_format(self, session):
@@ -205,8 +206,8 @@ class TestBatchDataExportEndpoint:
 
         # Should have at least header row
         assert len(rows) >= 1
-        # Header row should have 10 columns
-        assert len(rows[0]) == 10
+        # Header row should have 12 columns (added store front match fields)
+        assert len(rows[0]) == 12
 
     def test_batch_data_export_success_filter(self, session):
         """Test export with success filter"""
@@ -246,8 +247,8 @@ class TestBatchDataExportEndpoint:
 
         # Should still have header row
         assert len(lines) >= 1
-        # Header row should have 10 columns
-        assert len(lines[0].split(',')) == 10
+        # Header row should have 12 columns (added store front match fields)
+        assert len(lines[0].split(',')) == 12
 
     def test_batch_data_export_content_disposition(self, session):
         """Test that export has proper Content-Disposition header"""

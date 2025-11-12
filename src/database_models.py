@@ -249,6 +249,9 @@ class URLAnalysisResult(Base):
     business_contact = Column(Text, nullable=True)
     phone_number = Column(Boolean, nullable=True)
     image_description = Column(Text, nullable=True)
+    # Store front matching fields (0-100 score and categorical label)
+    store_front_match_score = Column(Integer, nullable=True)
+    store_front_match = Column(String(50), nullable=True)
 
     # Processing metadata
     success = Column(Boolean, nullable=False)
@@ -296,6 +299,8 @@ class URLAnalysisResult(Base):
             'business_contact': self.business_contact,
             'phone_number': self.phone_number,
             'image_description': self.image_description,
+            'store_front_match_score': self.store_front_match_score,
+            'store_front_match': self.store_front_match,
             'success': self.success,
             'error_message': self.error_message,
             'processing_time_seconds': self.processing_time_seconds,

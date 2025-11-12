@@ -652,6 +652,8 @@ class BatchManager:
                             'url': result.url,
                             'success': result.success,
                             'store_name': result.store_name,
+                            'store_front_match_score': getattr(result, 'store_front_match_score', None),
+                            'store_front_match': getattr(result, 'store_front_match', None),
                             'error_message': result.error_message
                         } for result in recent_results
                     ]
@@ -704,6 +706,8 @@ class BatchManager:
                         # Truncate for API
                         'text_content': result.text_content[:500] if result.text_content else None,
                         'error_message': result.error_message,
+                        'store_front_match_score': getattr(result, 'store_front_match_score', None),
+                        'store_front_match': getattr(result, 'store_front_match', None),
                         'processing_time_seconds': result.processing_time_seconds
                     } for result in results
                 ]

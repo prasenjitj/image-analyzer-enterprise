@@ -201,24 +201,41 @@ class ImageProcessor:
                           None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
-            Analyze this image and determine if it shows a physical store.
+            You are an image analysis model.
+            Carefully examine the image and determine whether it shows a **physical store or business establishment**.
+            **Respond strictly in JSON format only** — no additional words, notes, or explanations.
 
-            Please provide a JSON response with the following structure:
             {
-                "store_image": true/false,
-                "text_content": "Uniquely visible text in the image",
-                "store_name": "name of the store if visible",
-                "business_contact": "phone number if visible",
-                "image_description": "brief description of what the image shows"
+            "store_image": true/false/"No Result",
+            "text_content": "Uniquely visible text in the image (e.g., on boards, signboards, banners)",
+            "store_name": "Name of the store if visible, else empty string",
+            "business_contact": "Phone number if visible, else empty string",
+            "image_description": "Brief factual description of what the image shows"
             }
 
-            Guidelines:
-            - store_image should be true if this shows a physical retail store, restaurant, shop, business establishment or stall etc
-            - Extract any visible text including store names, signs and contact phone numbers
-            - Be concise but accurate in descriptions
-            - If uncertain about store_image, return "No Result" 
-            - keep content in english only.
-            If no text is visible, return empty string for text_content, store_name and business_contact. Always respond in valid JSON format without any additional commentary or explanation.
+            **Rules & Guidelines:**
+
+            1. "store_image"
+
+            * true → if it clearly shows a **physical store, shop, restaurant, stall, or similar business**.
+            * false → if it **does not** show a business establishment.
+            * "No Result" → if the image is **ambiguous or unclear**.
+
+            2. "text_content"
+
+            * Include **only actual visible text** from the image (signboards, banners, etc.).
+            * If no text is visible, use an **empty string**.
+
+            3. "store_name" and "business_contact"
+            * Extract from visible text only — do not guess or infer.
+            * Use an empty string if not visible.
+
+            4. "image_description"
+            * Keep it **brief, factual, and in English**.
+            * Describe only what is visible — no assumptions or inferences.
+
+            5. **Output requirement:**
+            * Output **only the JSON object** — no markdown, no comments, no extra words before or after.
         """.strip()
 
         try:

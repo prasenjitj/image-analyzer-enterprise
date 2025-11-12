@@ -529,7 +529,7 @@ def create_enterprise_app():
             # Known CSV headers (keep in sync with ExportManager._generate_csv_data)
             csv_headers = [
                 'url', 'success', 'store_front', 'text_content', 'store_name',
-                'business_contact', 'image_description', 'error_message',
+                'business_contact', 'image_description', 'store_front_match_score', 'store_front_match', 'error_message',
                 'processing_time_seconds', 'created_at', 'batch_id'
             ]
 
@@ -1745,10 +1745,16 @@ def create_enterprise_app():
                 data = []
                 for result in results:
                     data.append({
+                        'success': bool(result.success),
+                        'serial_number': result.serial_number,
+                        'business_name': result.business_name,
+                        'input_phone_number': result.input_phone_number,
                         'store_image': result.store_image,
                         'text_content': result.text_content,
                         'store_name': result.store_name,
                         'business_contact': result.business_contact,
+                        'store_front_match_score': getattr(result, 'store_front_match_score', None),
+                        'store_front_match': getattr(result, 'store_front_match', None),
                         'phone_number': bool(result.phone_number),
                         'image_description': result.image_description,
                         'url': result.url,
@@ -1833,20 +1839,27 @@ def create_enterprise_app():
                 csv_buffer = io.StringIO()
                 writer = csv.writer(csv_buffer)
 
-                # Write header
-                headers = ['store_front', 'text_content', 'store_name', 'business_contact', 'phone_number',
-                           'image_description', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
+                # Write header (include original CSV/listing input fields)
+                headers = ['serial_number', 'business_name', 'input_phone_number', 'success', 'store_front', 'text_content', 'store_name', 'business_contact', 'phone_number',
+                           'image_description', 'store_front_match_score', 'store_front_match', 'url', 'processing_time_seconds', 'created_at', 'batch_id']
                 writer.writerow(headers)
 
                 # Write data rows
                 for result in results:
                     writer.writerow([
+                        result.serial_number or '',
+                        result.business_name or '',
+                        result.input_phone_number or '',
+                        'true' if result.success else 'false',
                         'true' if result.store_image else 'false',
                         result.text_content or '',
                         result.store_name or '',
                         result.business_contact or '',
                         'true' if result.phone_number else 'false',
                         result.image_description or '',
+                        result.store_front_match_score if getattr(
+                            result, 'store_front_match_score', None) is not None else '',
+                        result.store_front_match or '',
                         result.url or '',
                         result.processing_time_seconds or '',
                         result.created_at.isoformat() if result.created_at else '',

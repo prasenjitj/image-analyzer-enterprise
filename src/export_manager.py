@@ -282,6 +282,7 @@ class ExportManager:
             'serial_number', 'business_name', 'input_phone_number', 'storefront_photo_url',
             'store_image_detected', 'ai_detected_text', 'ai_detected_store_name',
             'ai_detected_contact', 'ai_found_phone_number', 'image_description',
+            'store_front_match_score', 'store_front_match',
             'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
         ]
 
@@ -302,6 +303,9 @@ class ExportManager:
                 result.business_contact or '',
                 'Yes' if result.phone_number else 'No',
                 result.image_description or '',
+                result.store_front_match_score if getattr(
+                    result, 'store_front_match_score', None) is not None else '',
+                result.store_front_match or '',
                 result.error_message or '',
                 result.processing_time_seconds or 0,
                 result.created_at.isoformat() if result.created_at else '',
@@ -355,6 +359,8 @@ class ExportManager:
                 'AI Detected Contact': result.business_contact or '',
                 'AI Found Phone Number': 'Yes' if result.phone_number else 'No',
                 'Image Description': result.image_description or '',
+                'Store Front Match Score': result.store_front_match_score if getattr(result, 'store_front_match_score', None) is not None else '',
+                'Store Front Match': result.store_front_match or '',
                 'Error Message': result.error_message or '',
                 'Processing Time (seconds)': result.processing_time_seconds or 0,
                 'Created At': result.created_at,
@@ -400,7 +406,7 @@ class ExportManager:
                 'serial_number', 'business_name', 'input_phone_number', 'storefront_photo_url',
                 'store_image_detected', 'ai_detected_text', 'ai_detected_store_name',
                 'ai_detected_contact', 'ai_found_phone_number', 'image_description',
-                'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
+                'store_front_match_score', 'store_front_match', 'error_message', 'processing_time_seconds', 'created_at', 'batch_id'
             ]
 
             writer = csv.writer(csv_buffer)
@@ -418,6 +424,9 @@ class ExportManager:
                     result.business_contact or '',
                     'Yes' if result.phone_number else 'No',
                     result.image_description or '',
+                    result.store_front_match_score if getattr(
+                        result, 'store_front_match_score', None) is not None else '',
+                    result.store_front_match or '',
                     result.error_message or '',
                     result.processing_time_seconds or 0,
                     result.created_at.isoformat() if result.created_at else '',

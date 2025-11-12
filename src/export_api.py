@@ -324,6 +324,8 @@ def preview_batch_export(batch_id: str):
                     'store_image': result.store_image,
                     'text_content': result.text_content,
                     'store_name': result.store_name,
+                    'store_front_match_score': getattr(result, 'store_front_match_score', None),
+                    'store_front_match': getattr(result, 'store_front_match', None),
                     'business_contact': result.business_contact,
                     'image_description': result.image_description,
                     'error_message': result.error_message,
