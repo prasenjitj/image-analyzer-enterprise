@@ -325,10 +325,8 @@ class ChunkProcessor:
 
                     # Compute store front fuzzy match between listing business_name and AI-detected store_name
                     try:
-                        listing_name = (listing_data.get(
-                            'business_name') or '') if listing_data else ''
-                        detected_name = (getattr(result, 'analysis', {}) or {}).get(
-                            'store_name') if hasattr(result, 'analysis') else None
+                        listing_name = (listing_data.get('business_name') or '') if listing_data else ''
+                        detected_name = (getattr(result, 'analysis', {}) or {}).get('store_name') if hasattr(result, 'analysis') else None
                         # If analysis present, prefer stored url_result.store_name
                         if url_result.store_name:
                             detected_name = url_result.store_name
@@ -336,11 +334,20 @@ class ChunkProcessor:
                         def _normalize(s: str) -> str:
                             if not s:
                                 return ''
-                            # Lowercase, strip punctuation, collapse whitespace
                             import re
-                            s2 = re.sub(r"[^\w\s]", "", s.lower())
-                            s2 = re.sub(r"\s+", " ", s2).strip()
-                            return s2
+                            s2 = s.lower()
+                            # Normalize ampersand and common separators
+                            s2 = s2.replace('&', ' and ')
+                            # Remove punctuation (keep alphanumerics and spaces)
+                            s2 = re.sub(r"[^\w\s]", ' ', s2)
+                            # Collapse whitespace
+                            s2 = re.sub(r"\s+", ' ', s2).strip()
+                            # Remove common suffixes/stopwords configured in enterprise_config
+                            words = [w for w in s2.split(' ') if w]
+                            suffixes = config.store_front_match_strip_suffixes_list if hasattr(config, 'store_front_match_strip_suffixes_list') else []
+                            # Filter out suffix tokens (anywhere in name)
+                            words = [w for w in words if w not in suffixes]
+                            return ' '.join(words)
 
                         ln = _normalize(listing_name)
                         dn = _normalize(detected_name) if detected_name else ''
@@ -349,12 +356,24 @@ class ChunkProcessor:
                         label = 'Mis Match'
 
                         if ln and dn:
-                            ratio = difflib.SequenceMatcher(
-                                None, ln, dn).ratio()
-                            score = int(round(ratio * 100))
-                            if score >= 80:
+                            # Prefer rapidfuzz token set ratio for token-aware similarity when configured
+                            if getattr(config, 'store_front_match_use_rapidfuzz', True):
+                                try:
+                                    from rapidfuzz.fuzz import token_set_ratio
+
+                                    # rapidfuzz returns an integer 0-100
+                                    score = int(token_set_ratio(ln, dn))
+                                except Exception:
+                                    # Fallback to difflib if rapidfuzz not available or errors
+                                    ratio = difflib.SequenceMatcher(None, ln, dn).ratio()
+                                    score = int(round(ratio * 100))
+                            else:
+                                ratio = difflib.SequenceMatcher(None, ln, dn).ratio()
+                                score = int(round(ratio * 100))
+
+                            if score >= getattr(config, 'store_front_match_threshold_match', 80):
                                 label = 'Matched'
-                            elif score >= 70:
+                            elif score >= getattr(config, 'store_front_match_threshold_partial', 70):
                                 label = 'Partial Match'
                             else:
                                 label = 'Mis Match'
@@ -367,8 +386,7 @@ class ChunkProcessor:
                         url_result.store_front_match = label
                     except Exception:
                         # Do not block storing results if matching fails
-                        logger.exception(
-                            'Failed to compute store front match for %s', url_value)
+                        logger.exception('Failed to compute store front match for %s', url_value)
 
                     session.add(url_result)
 

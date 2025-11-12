@@ -105,6 +105,24 @@ class EnterpriseConfig(BaseSettings):
     # remote API so developers can inspect what was uploaded.
     store_sent_images: bool = Field(False, env="STORE_SENT_IMAGES")
 
+    # Store front fuzzy-match configuration
+    # Thresholds are percentages (0-100)
+    store_front_match_threshold_match: int = Field(80, env="STORE_FRONT_MATCH_THRESHOLD_MATCH")
+    store_front_match_threshold_partial: int = Field(70, env="STORE_FRONT_MATCH_THRESHOLD_PARTIAL")
+    # Use rapidfuzz token_set_ratio when available. If False, falls back to difflib.SequenceMatcher
+    store_front_match_use_rapidfuzz: bool = Field(True, env="STORE_FRONT_MATCH_USE_RAPIDFUZZ")
+    # Comma-separated list of common business suffixes to strip before matching
+    store_front_match_strip_suffixes: str = Field(
+        "ltd,llc,inc,pvt,pvtltd,co,company,store,stores,the,shop,shops,retail",
+        env="STORE_FRONT_MATCH_STRIP_SUFFIXES"
+    )
+
+    @property
+    def store_front_match_strip_suffixes_list(self) -> List[str]:
+        """Return normalized list of suffixes to strip during store name normalization"""
+        raw = (self.store_front_match_strip_suffixes or '')
+        return [s.strip().lower() for s in raw.split(',') if s.strip()]
+
     @property
     def api_keys_list(self) -> List[str]:
         """Get list of API keys (for backward compatibility, returns empty list if using external API)"""
@@ -191,6 +209,12 @@ class EnterpriseConfig(BaseSettings):
 
         if self.chunk_size > 2000:
             warnings.append("Large chunk size may cause memory issues")
+
+        # Validate store front match thresholds
+        if not (0 <= self.store_front_match_threshold_partial <= 100 and 0 <= self.store_front_match_threshold_match <= 100):
+            warnings.append("Store front match thresholds must be between 0 and 100")
+        if self.store_front_match_threshold_partial > self.store_front_match_threshold_match:
+            warnings.append("Partial match threshold is greater than full match threshold; check STORE_FRONT_MATCH_THRESHOLD_* settings")
 
         return warnings
 
