@@ -107,10 +107,13 @@ class EnterpriseConfig(BaseSettings):
 
     # Store front fuzzy-match configuration
     # Thresholds are percentages (0-100)
-    store_front_match_threshold_match: int = Field(80, env="STORE_FRONT_MATCH_THRESHOLD_MATCH")
-    store_front_match_threshold_partial: int = Field(70, env="STORE_FRONT_MATCH_THRESHOLD_PARTIAL")
+    store_front_match_threshold_match: int = Field(
+        80, env="STORE_FRONT_MATCH_THRESHOLD_MATCH")
+    store_front_match_threshold_partial: int = Field(
+        70, env="STORE_FRONT_MATCH_THRESHOLD_PARTIAL")
     # Use rapidfuzz token_set_ratio when available. If False, falls back to difflib.SequenceMatcher
-    store_front_match_use_rapidfuzz: bool = Field(True, env="STORE_FRONT_MATCH_USE_RAPIDFUZZ")
+    store_front_match_use_rapidfuzz: bool = Field(
+        True, env="STORE_FRONT_MATCH_USE_RAPIDFUZZ")
     # Comma-separated list of common business suffixes to strip before matching
     store_front_match_strip_suffixes: str = Field(
         "ltd,llc,inc,pvt,pvtltd,co,company,store,stores,the,shop,shops,retail",
@@ -212,9 +215,11 @@ class EnterpriseConfig(BaseSettings):
 
         # Validate store front match thresholds
         if not (0 <= self.store_front_match_threshold_partial <= 100 and 0 <= self.store_front_match_threshold_match <= 100):
-            warnings.append("Store front match thresholds must be between 0 and 100")
+            warnings.append(
+                "Store front match thresholds must be between 0 and 100")
         if self.store_front_match_threshold_partial > self.store_front_match_threshold_match:
-            warnings.append("Partial match threshold is greater than full match threshold; check STORE_FRONT_MATCH_THRESHOLD_* settings")
+            warnings.append(
+                "Partial match threshold is greater than full match threshold; check STORE_FRONT_MATCH_THRESHOLD_* settings")
 
         return warnings
 
