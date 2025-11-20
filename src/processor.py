@@ -201,10 +201,8 @@ class ImageProcessor:
                           None) or "http://34.66.92.16:8000/generate"
 
         prompt = """
-            You are an image analysis model.
-            Carefully examine the image and determine whether it shows a **physical store or business establishment**.
-            **Respond strictly in JSON format only** — no additional words, notes, or explanations.
-
+            You are an image analysis model. Carefully examine the image and determine whether it shows a physical store or business establishment. 
+            **The main subject of the image must be a store front or business entrance with a clearly visible storefront. If the store is not the primary subject (e.g., barely visible, background only, cropped, partial, or obstructed), do NOT set `store_image` to true.** Respond strictly in JSON format only — no additional words, notes, or explanations.
             {
             "store_image": true/false/"No Result",
             "text_content": "Uniquely visible text in the image (e.g., on boards, signboards, banners)",
@@ -213,29 +211,34 @@ class ImageProcessor:
             "image_description": "Brief factual description of what the image shows"
             }
 
-            **Rules & Guidelines:**
+            Rules & Guidelines:
 
-            1. "store_image"
+            1. **store_image**
 
-            * true → if it clearly shows a **physical store, shop, restaurant, stall, or similar business**.
-            * false → if it **does not** show a business establishment.
-            * "No Result" → if the image is **ambiguous or unclear**.
+            * **true** → only if the *main subject* of the image is a clearly visible physical store, shop, restaurant, stall, or similar business with an identifiable storefront.
+            * **false** → if the image does not show a store, OR if a store exists but is not the main subject (e.g., in the background, partially cropped, too far away, obstructed, or indistinct).
+            * **"No Result"** → if the image is too unclear or ambiguous to decide.
 
-            2. "text_content"
+            2. **text_content**
 
-            * Include **only actual visible text** from the image (signboards, banners, etc.).
-            * If no text is visible, use an **empty string**.
+            * Include only actual visible text from signboards, banners, or storefronts.
+            * If no text is visible, use an empty string.
 
-            3. "store_name" and "business_contact"
-            * Extract from visible text only — do not guess or infer.
-            * Use an empty string if not visible.
+            3. **store_name & business_contact**
 
-            4. "image_description"
-            * Keep it **brief, factual, and in English**.
-            * Describe only what is visible — no assumptions or inferences.
+            * Extract ONLY from visible text.
+            * Do not infer or guess.
+            * Use empty string if not visible.
 
-            5. **Output requirement:**
-            * Output **only the JSON object** — no markdown, no comments, no extra words before or after.
+            4. **image_description**
+
+            * Keep short, factual, objective.
+            * Describe only what is visible — no assumptions.
+
+            5. **Output requirements**
+
+            * Output only the JSON object.
+            * No markdown, comments, extra text, or explanations before or after.
         """.strip()
 
         try:
