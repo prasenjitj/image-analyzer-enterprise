@@ -14,7 +14,7 @@ sys.path.insert(0, parent_dir)
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Enterprise Image Analyzer Server')
-    parser.add_argument('--host', default='127.0.0.1',
+    parser.add_argument('--host', default='0.0.0.0',
                         help='Host to bind the server to')
     parser.add_argument('--port', type=int, default=5001,
                         help='Port to bind the server to')

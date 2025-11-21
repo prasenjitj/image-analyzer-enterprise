@@ -290,10 +290,10 @@ After=network.target postgresql.service redis-server.service
 
 [Service]
 Type=simple
-User=your-username
-WorkingDirectory=/home/your-username/image-analyzer-enterprise
-Environment=PATH=/home/your-username/image-analyzer-enterprise/venv/bin
-ExecStart=/home/your-username/image-analyzer-enterprise/venv/bin/python server/run_server.py
+User=prasenjitjana
+WorkingDirectory=/home/prasenjitjana/image-analyzer-enterprise
+Environment=PATH=/home/prasenjitjana/image-analyzer-enterprise/venv/bin
+ExecStart=/home/prasenjitjana/image-analyzer-enterprise/venv/bin/python server/run_server_http.py
 Restart=always
 RestartSec=5
 
@@ -314,10 +314,10 @@ After=network.target postgresql.service redis-server.service
 
 [Service]
 Type=simple
-User=your-username
-WorkingDirectory=/home/your-username/image-analyzer-enterprise
-Environment=PATH=/home/your-username/image-analyzer-enterprise/venv/bin
-ExecStart=/home/your-username/image-analyzer-enterprise/venv/bin/python server/run_workers.py
+User=prasenjitjana
+WorkingDirectory=/home/prasenjitjana/image-analyzer-enterprise
+Environment=PATH=/home/prasenjitjana/image-analyzer-enterprise/venv/bin
+ExecStart=/home/prasenjitjana/image-analyzer-enterprise/venv/bin/python server/run_workers.py
 Restart=always
 RestartSec=5
 
