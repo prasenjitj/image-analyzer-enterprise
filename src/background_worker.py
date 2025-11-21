@@ -575,7 +575,8 @@ class BackgroundWorker:
                     try:
                         await job_queue.fail_job_async(self.current_job.job_id, str(e))
                     except Exception:
-                        logger.exception("Failed to mark job as failed in job queue")
+                        logger.exception(
+                            "Failed to mark job as failed in job queue")
                     self.current_job = None
 
                 # Wait before retrying
@@ -628,14 +629,18 @@ class BackgroundWorker:
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    loop.create_task(job_queue.fail_job_async(self.current_job.job_id, "Worker stopped during processing"))
+                    loop.create_task(job_queue.fail_job_async(
+                        self.current_job.job_id, "Worker stopped during processing"))
                 else:
-                    loop.run_until_complete(job_queue.fail_job_async(self.current_job.job_id, "Worker stopped during processing"))
+                    loop.run_until_complete(job_queue.fail_job_async(
+                        self.current_job.job_id, "Worker stopped during processing"))
             except RuntimeError:
                 try:
-                    asyncio.run(job_queue.fail_job_async(self.current_job.job_id, "Worker stopped during processing"))
+                    asyncio.run(job_queue.fail_job_async(
+                        self.current_job.job_id, "Worker stopped during processing"))
                 except Exception:
-                    logger.exception("Failed to mark current job as failed during stop()")
+                    logger.exception(
+                        "Failed to mark current job as failed during stop()")
 
 
 class WorkerManager:

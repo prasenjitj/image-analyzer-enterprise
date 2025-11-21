@@ -57,9 +57,11 @@ class ImageProcessor:
             # Use a TCPConnector with a reasonable limit and a more granular
             # ClientTimeout so we can distinguish connect vs read timeouts.
             # limit_per_host helps avoid creating excessive connections to a single host
-            connector = aiohttp.TCPConnector(limit=self.max_workers, limit_per_host=self.max_workers, enable_cleanup_closed=True)
+            connector = aiohttp.TCPConnector(
+                limit=self.max_workers, limit_per_host=self.max_workers, enable_cleanup_closed=True)
             # configure connect and sock_read timeouts to avoid long hangs
-            connect_timeout = min(10, max(1, int(getattr(config, 'request_timeout', 150))))
+            connect_timeout = min(
+                10, max(1, int(getattr(config, 'request_timeout', 150))))
             sock_read = max(30, int(getattr(config, 'request_timeout', 150)))
             timeout = aiohttp.ClientTimeout(total=getattr(config, 'request_timeout', 150),
                                             connect=connect_timeout,
@@ -301,20 +303,24 @@ class ImageProcessor:
             for attempt in range(attempts):
                 # Diagnostic: log session timeout settings and try resolving host
                 try:
-                    logger.debug("Session timeout settings: %s", getattr(self.session, 'timeout', None))
+                    logger.debug("Session timeout settings: %s",
+                                 getattr(self.session, 'timeout', None))
                     parsed = urlparse(api_url)
                     host = parsed.hostname
-                    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+                    port = parsed.port or (
+                        443 if parsed.scheme == 'https' else 80)
                     loop = asyncio.get_running_loop()
                     try:
                         addrs = await loop.getaddrinfo(host, port)
                         resolved = [a[4][0] for a in addrs]
                         logger.debug("Resolved %s to %s", host, resolved)
                     except Exception as dns_e:
-                        logger.warning("DNS resolution failed for %s: %s", host, repr(dns_e))
+                        logger.warning(
+                            "DNS resolution failed for %s: %s", host, repr(dns_e))
                 except Exception:
                     # Non-fatal diagnostic failure
-                    logger.debug("Failed to run diagnostics for api_url=%s", api_url)
+                    logger.debug(
+                        "Failed to run diagnostics for api_url=%s", api_url)
                 try:
                     # Create fresh FormData for each attempt to avoid reusing a consumed
                     # payload (which can cause hangs or unexpected behavior).
