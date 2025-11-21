@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional, Callable, Union
 from dataclasses import dataclass, asdict
 from enum import Enum
 import hashlib
+import asyncio
 
 try:
     import redis
@@ -196,6 +197,11 @@ class JobQueue:
                     return job
             return None
 
+    async def dequeue_job_async(self, worker_id: str) -> Optional[Job]:
+        """Async wrapper for `dequeue_job` to avoid blocking the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.dequeue_job, worker_id)
+
     def complete_job(self, job_id: str, result: Dict[str, Any] = None):
         """Mark job as completed"""
         job = self.get_job(job_id)
@@ -216,6 +222,11 @@ class JobQueue:
             self._jobs[job_id] = job
 
         logger.info(f"Completed job {job_id}")
+
+    async def complete_job_async(self, job_id: str, result: Dict[str, Any] = None):
+        """Async wrapper for `complete_job`."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.complete_job, job_id, result)
 
     def fail_job(self, job_id: str, error_message: str, retry: bool = True):
         """Mark job as failed"""
@@ -333,6 +344,11 @@ class JobQueue:
         """Stop the job queue (placeholder for graceful shutdown)"""
         logger.info("Job queue shutdown requested")
         # In a more complex implementation, this would stop workers gracefully
+
+    async def fail_job_async(self, job_id: str, error_message: str, retry: bool = True):
+        """Async wrapper for `fail_job`."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.fail_job, job_id, error_message, retry)
 
 
 class BackgroundWorker:

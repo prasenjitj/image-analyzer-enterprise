@@ -13,6 +13,7 @@ import json
 import os
 from io import BytesIO
 from PIL import Image, ImageOps
+from urllib.parse import urlparse
 
 from .enterprise_config import config
 
@@ -42,6 +43,8 @@ class ImageProcessor:
             config, 'max_concurrent_workers', 5)
         self.current_api_key_index = 0
         self.session: Optional[aiohttp.ClientSession] = None
+        # store the client timeout object for per-request reuse
+        self._client_timeout: Optional[aiohttp.ClientTimeout] = None
 
         logger.info(
             f"ImageProcessor initialized with API endpoint processing")
@@ -51,12 +54,25 @@ class ImageProcessor:
     def start_processing(self):
         """Initialize processing session"""
         if not self.session:
-            connector = aiohttp.TCPConnector(limit=self.max_workers)
-            timeout = aiohttp.ClientTimeout(total=config.request_timeout)
+            # Use a TCPConnector with a reasonable limit and a more granular
+            # ClientTimeout so we can distinguish connect vs read timeouts.
+            # limit_per_host helps avoid creating excessive connections to a single host
+            connector = aiohttp.TCPConnector(limit=self.max_workers, limit_per_host=self.max_workers, enable_cleanup_closed=True)
+            # configure connect and sock_read timeouts to avoid long hangs
+            connect_timeout = min(10, max(1, int(getattr(config, 'request_timeout', 150))))
+            sock_read = max(30, int(getattr(config, 'request_timeout', 150)))
+            timeout = aiohttp.ClientTimeout(total=getattr(config, 'request_timeout', 150),
+                                            connect=connect_timeout,
+                                            sock_connect=connect_timeout,
+                                            sock_read=sock_read)
+            # store for per-request usage
+            self._client_timeout = timeout
             self.session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=timeout
             )
+            logger.debug("Started aiohttp session (connect=%ss sock_read=%ss total=%s)",
+                         connect_timeout, sock_read, getattr(config, 'request_timeout', None))
 
     async def stop_processing(self):
         """Clean up processing session"""
@@ -139,11 +155,14 @@ class ImageProcessor:
                 self.session = None
             self.start_processing()
 
-        # Create tasks for concurrent processing
-        tasks = []
-        for url in urls:
-            task = asyncio.create_task(self.process_single_url(url))
-            tasks.append(task)
+        # Create tasks for concurrent processing but limit concurrency with a semaphore
+        semaphore = asyncio.Semaphore(self.max_workers or 5)
+
+        async def sem_task(u: str):
+            async with semaphore:
+                return await self.process_single_url(u)
+
+        tasks = [asyncio.create_task(sem_task(url)) for url in urls]
 
         # Wait for all tasks to complete
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -168,6 +187,7 @@ class ImageProcessor:
         start_time = time.time()
 
         try:
+            logger.debug("Processing single URL: %s", url)
             # Ensure processing session is available before attempting to
             # download/resize images locally. This covers cases where
             # `process_single_url` was called directly without prior
@@ -265,17 +285,6 @@ class ImageProcessor:
                     logger.exception(
                         'Failed to save sent image for debugging: %s', image_url)
 
-            # Prepare form data
-            data = aiohttp.FormData()
-            data.add_field('text', prompt.strip())
-            # Attach resized image file when available; otherwise send image_url only.
-            if resized_bytes:
-                data.add_field('image', resized_bytes,
-                               filename='resized.jpg', content_type='image/jpeg')
-            else:
-                # This line remains unchanged
-                data.add_field('image_url', image_url)
-
             # Prepare headers (some servers require a User-Agent)
             headers = {'User-Agent': 'ImageAnalyzerEnterprise/1.0'}
 
@@ -284,25 +293,101 @@ class ImageProcessor:
             last_exception = None
             response_text = None
 
+            # Flag to indicate we've already attempted to switch from sending
+            # an `image_url` to sending raw image bytes after a server-side
+            # rejection (some servers disable URL uploads).
+            tried_force_upload = False
+
             for attempt in range(attempts):
+                # Diagnostic: log session timeout settings and try resolving host
                 try:
+                    logger.debug("Session timeout settings: %s", getattr(self.session, 'timeout', None))
+                    parsed = urlparse(api_url)
+                    host = parsed.hostname
+                    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+                    loop = asyncio.get_running_loop()
+                    try:
+                        addrs = await loop.getaddrinfo(host, port)
+                        resolved = [a[4][0] for a in addrs]
+                        logger.debug("Resolved %s to %s", host, resolved)
+                    except Exception as dns_e:
+                        logger.warning("DNS resolution failed for %s: %s", host, repr(dns_e))
+                except Exception:
+                    # Non-fatal diagnostic failure
+                    logger.debug("Failed to run diagnostics for api_url=%s", api_url)
+                try:
+                    # Create fresh FormData for each attempt to avoid reusing a consumed
+                    # payload (which can cause hangs or unexpected behavior).
+                    data = aiohttp.FormData()
+                    data.add_field('text', prompt.strip())
+                    if resized_bytes:
+                        data.add_field('image', resized_bytes,
+                                       filename='resized.jpg', content_type='image/jpeg')
+                    else:
+                        data.add_field('image_url', image_url)
+
                     logger.debug(
-                        "Calling API %s (attempt %d/%d) timeout=%ss",
+                        "Calling API %s (attempt %d/%d) timeout=%ss; url=%s; has_image=%s",
                         api_url,
                         attempt + 1,
                         attempts,
                         getattr(config, 'request_timeout', None),
+                        image_url,
+                        bool(resized_bytes),
                     )
-                    async with self.session.post(api_url, data=data, headers=headers) as response:
+
+                    # Use the preconfigured per-session timeout for each request to
+                    # keep behavior consistent, but also pass it explicitly to
+                    # ensure per-request timeout semantics.
+                    async with self.session.post(api_url, data=data, headers=headers, timeout=self._client_timeout) as response:
                         body = await response.text()
+
                         if response.status != 200:
+                            lower_body = (body or "").lower()
                             logger.warning(
                                 "API returned non-200 status %s for %s (attempt %d/%d). Body snippet: %s",
                                 response.status, image_url, attempt +
                                 1, attempts, (body or "")[:1000]
                             )
+
+                            # Specific fallback: some servers disallow submitting
+                            # an `image_url` field and require raw image bytes.
+                            if (response.status == 400 and
+                                    ("uploads are disabled" in lower_body or "image url uploads are disabled" in lower_body)):
+                                # If we've not yet tried switching to raw bytes,
+                                # attempt to download and attach the image data
+                                # and retry the request.
+                                if not tried_force_upload:
+                                    tried_force_upload = True
+                                    logger.info(
+                                        "Server rejected image_url for %s; attempting to download image and resend as bytes",
+                                        image_url,
+                                    )
+                                    # Attempt to download image bytes for forced upload
+                                    downloaded = await self._download_and_resize_image(image_url, always_upload=True)
+                                    if downloaded:
+                                        resized_bytes = downloaded
+                                        # Allow a short backoff before retrying
+                                        await asyncio.sleep(min(5, getattr(config, 'retry_delay', 2.0)))
+                                        # continue to next attempt (do not raise)
+                                        continue
+                                    else:
+                                        # Could not download; treat as terminal
+                                        last_exception = Exception(
+                                            f"Server requires direct image upload but failed to download image for {image_url}")
+                                        break
+
+                            # For 5xx or 429 errors, allow retry according to backoff
+                            if response.status >= 500 or response.status == 429:
+                                last_exception = Exception(
+                                    f"API request failed with status {response.status}")
+                                await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+                                continue
+
+                            # Other client errors are treated as non-retriable
                             raise Exception(
                                 f"API request failed with status {response.status}")
+
                         response_text = body
                         last_exception = None
                         break

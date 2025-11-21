@@ -515,7 +515,23 @@ class ChunkProcessor:
         """Signal the processor to stop"""
         self.should_stop = True
         if hasattr(self.processor, 'stop_processing'):
-            self.processor.stop_processing()
+            # Schedule the async stop_processing properly depending on
+            # whether an event loop is running. This avoids leaving
+            # the aiohttp ClientSession open or creating blocking calls.
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Schedule coroutine to close session asynchronously
+                    loop.create_task(self.processor.stop_processing())
+                else:
+                    # No running loop: run until complete
+                    loop.run_until_complete(self.processor.stop_processing())
+            except RuntimeError:
+                # Fallback: create a new event loop to run the coroutine
+                try:
+                    asyncio.run(self.processor.stop_processing())
+                except Exception:
+                    logger.exception('Failed to stop processor cleanly')
 
 
 class BackgroundWorker:
@@ -535,8 +551,8 @@ class BackgroundWorker:
 
         while not self.should_stop:
             try:
-                # Get next job from queue
-                job = job_queue.dequeue_job(self.worker_id)
+                # Get next job from queue (async wrapper to avoid blocking loop)
+                job = await job_queue.dequeue_job_async(self.worker_id)
 
                 if job is None:
                     # No job available, wait a bit
@@ -556,7 +572,10 @@ class BackgroundWorker:
             except Exception as e:
                 logger.error(f"Worker {self.worker_id} error: {e}")
                 if self.current_job:
-                    job_queue.fail_job(self.current_job.job_id, str(e))
+                    try:
+                        await job_queue.fail_job_async(self.current_job.job_id, str(e))
+                    except Exception:
+                        logger.exception("Failed to mark job as failed in job queue")
                     self.current_job = None
 
                 # Wait before retrying
@@ -583,7 +602,7 @@ class BackgroundWorker:
                 result = await self.chunk_processor.process_chunk(batch_id, chunk_id, data)
 
                 # Mark job as completed
-                job_queue.complete_job(job.job_id, result)
+                await job_queue.complete_job_async(job.job_id, result)
 
                 logger.info(f"Job {job.job_id} completed successfully")
 
@@ -592,7 +611,10 @@ class BackgroundWorker:
 
         except Exception as e:
             logger.error(f"Job {job.job_id} failed: {e}")
-            job_queue.fail_job(job.job_id, str(e))
+            try:
+                await job_queue.fail_job_async(job.job_id, str(e))
+            except Exception:
+                logger.exception("Failed to mark job as failed in job queue")
             raise
 
     def stop(self):
@@ -603,10 +625,17 @@ class BackgroundWorker:
 
         # If currently processing a job, mark it as failed
         if self.current_job:
-            job_queue.fail_job(
-                self.current_job.job_id,
-                "Worker stopped during processing"
-            )
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(job_queue.fail_job_async(self.current_job.job_id, "Worker stopped during processing"))
+                else:
+                    loop.run_until_complete(job_queue.fail_job_async(self.current_job.job_id, "Worker stopped during processing"))
+            except RuntimeError:
+                try:
+                    asyncio.run(job_queue.fail_job_async(self.current_job.job_id, "Worker stopped during processing"))
+                except Exception:
+                    logger.exception("Failed to mark current job as failed during stop()")
 
 
 class WorkerManager:
@@ -618,8 +647,14 @@ class WorkerManager:
         self.worker_tasks: List[asyncio.Task] = []
         self.should_stop = False
 
+        # Log initialization and the effective API endpoint used by processors
         logger.info(
             f"WorkerManager initialized with {self.num_workers} workers")
+        try:
+            api_url = getattr(config, 'api_endpoint_url', None)
+        except Exception:
+            api_url = None
+        logger.info(f"Effective API endpoint: {api_url}")
 
     async def start_workers(self):
         """Start all background workers"""
