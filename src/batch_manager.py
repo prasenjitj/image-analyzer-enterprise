@@ -319,11 +319,26 @@ class BatchManager:
                 completed_at_iso = None
 
                 if hasattr(batch, 'started_at') and batch.started_at:
-                    elapsed_minutes = (
-                        self._utc_now() - batch.started_at).total_seconds() / 60
                     started_at_iso = batch.started_at.isoformat()
 
-                    if processing_rate > 0:
+                    # If batch has completed, elapsed time should be frozen to
+                    # completed_at - started_at. Otherwise compute elapsed up
+                    # to now. This prevents the UI from continuing to increment
+                    # processing time after completion.
+                    if hasattr(batch, 'completed_at') and batch.completed_at:
+                        try:
+                            elapsed_minutes = (
+                                batch.completed_at - batch.started_at).total_seconds() / 60
+                        except Exception:
+                            # Fallback to UTC now if timezone issues arise
+                            elapsed_minutes = (
+                                self._utc_now() - batch.started_at).total_seconds() / 60
+                    else:
+                        elapsed_minutes = (
+                            self._utc_now() - batch.started_at).total_seconds() / 60
+
+                    # Only compute remaining time while batch is actively running
+                    if not (hasattr(batch, 'completed_at') and batch.completed_at) and processing_rate > 0:
                         remaining_urls = batch.total_urls - batch.processed_count
                         remaining_minutes = remaining_urls / processing_rate
 
