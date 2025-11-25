@@ -12,11 +12,11 @@ load_dotenv()
 
 
 class EnterpriseConfig(BaseSettings):
-    """Enterprise configuration for batch processing"""
+    """Enterprise configuration for batch processing - Optimized for throughput"""
 
     # API Configuration
     api_endpoint_url: str = Field(
-        "http://localhost:8000/generate", env="API_ENDPOINT_URL")
+        "http://34.66.92.16:8000/generate", env="API_ENDPOINT_URL")
     # Kept for backward compatibility
     google_api_key: str = Field("", env="GOOGLE_API_KEY")
     google_api_keys: Optional[str] = Field(
@@ -37,23 +37,25 @@ class EnterpriseConfig(BaseSettings):
     redis_db: int = Field(0, env="REDIS_DB")
     redis_socket_timeout: int = Field(5, env="REDIS_SOCKET_TIMEOUT")
 
-    # Batch Processing Configuration
-    chunk_size: int = Field(1000, env="CHUNK_SIZE")
+    # Batch Processing Configuration - OPTIMIZED FOR THROUGHPUT
+    chunk_size: int = Field(500, env="CHUNK_SIZE")  # Reduced for better parallelism
     max_concurrent_batches: int = Field(5, env="MAX_CONCURRENT_BATCHES")
-    max_concurrent_chunks: int = Field(1, env="MAX_CONCURRENT_CHUNKS")
+    max_concurrent_chunks: int = Field(4, env="MAX_CONCURRENT_CHUNKS")  # Process multiple chunks in parallel
     chunk_processing_timeout: int = Field(
         1800, env="CHUNK_PROCESSING_TIMEOUT")  # 30 minutes
 
-    # Processing Configuration
-    max_concurrent_workers: int = Field(5, env="MAX_CONCURRENT_WORKERS")
-    # Increased default timeout to accommodate longer /generate processing
-    request_timeout: int = Field(150, env="REQUEST_TIMEOUT")
-    retry_attempts: int = Field(3, env="RETRY_ATTEMPTS")
-    retry_delay: float = Field(2.0, env="RETRY_DELAY")
+    # Processing Configuration - OPTIMIZED TO MATCH LLM MODEL THROUGHPUT
+    # The LLM model supports 16 concurrent inference workers with batch size 16
+    # and 1000 req/min rate limit, so we should push high concurrency
+    max_concurrent_workers: int = Field(16, env="MAX_CONCURRENT_WORKERS")
+    # Reduced timeout since LLM model processes quickly with batching
+    request_timeout: int = Field(90, env="REQUEST_TIMEOUT")
+    retry_attempts: int = Field(2, env="RETRY_ATTEMPTS")
+    retry_delay: float = Field(1.0, env="RETRY_DELAY")  # Faster retries
 
-    # Rate Limiting (Single API Key Foundation)
+    # Rate Limiting - Matched to LLM model's 1000 req/min capacity
     requests_per_minute: int = Field(
-        100, env="REQUESTS_PER_MINUTE")  # Conservative
+        800, env="REQUESTS_PER_MINUTE")  # 80% of LLM model's 1000/min limit for safety margin
     rate_limit_buffer: float = Field(0.1, env="RATE_LIMIT_BUFFER")
 
     # Progress and Monitoring
@@ -77,11 +79,16 @@ class EnterpriseConfig(BaseSettings):
     # Cache Configuration
     cache_db_path: str = Field("./temp/analysis_cache.db", env="CACHE_DB_PATH")
 
-    # Performance Tuning
+    # Performance Tuning - Optimized for high throughput with LLM model
     image_max_size: int = Field(2048, env="IMAGE_MAX_SIZE")
     memory_limit_gb: int = Field(8, env="MEMORY_LIMIT_GB")
     gc_frequency: int = Field(1000, env="GC_FREQUENCY")
-    max_concurrent_requests: int = Field(1, env="MAX_CONCURRENT_REQUESTS")
+    # Increased to match LLM model's 16 concurrent inference workers
+    max_concurrent_requests: int = Field(16, env="MAX_CONCURRENT_REQUESTS")
+    # Connection pool size for aiohttp
+    connection_pool_size: int = Field(100, env="CONNECTION_POOL_SIZE")
+    # Keep-alive connections to reduce TCP overhead
+    enable_keepalive: bool = Field(True, env="ENABLE_KEEPALIVE")
 
     # Background Job Configuration
     job_queue_name: str = Field("image_analysis_jobs", env="JOB_QUEUE_NAME")

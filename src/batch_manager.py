@@ -1007,8 +1007,12 @@ class BatchManager:
 
         return chunks_created
 
-    def _queue_initial_chunks(self, session, batch_id: str, max_chunks: int = 3):
-        """Queue initial chunks for processing"""
+    def _queue_initial_chunks(self, session, batch_id: str, max_chunks: int = None):
+        """Queue initial chunks for processing - optimized for parallel processing"""
+        # Use config's max_concurrent_chunks (default 4) for parallel chunk processing
+        if max_chunks is None:
+            max_chunks = getattr(config, 'max_concurrent_chunks', 4)
+        
         chunks = session.query(ProcessingChunk).filter_by(
             batch_id=batch_id,
             status=ChunkStatus.PENDING
@@ -1026,6 +1030,7 @@ class BatchManager:
                 f"Queued chunk {chunk.chunk_number} for batch {batch_id} (job: {job_id})")
 
         session.commit()
+        logger.info(f"Queued {len(chunks)} chunks for parallel processing (max_concurrent_chunks={max_chunks})")
 
     # Publish progress update to Redis pub/sub if available so UI can receive real-time updates
     try:

@@ -52,29 +52,44 @@ class ImageProcessor:
             f"ImageProcessor initialized with API endpoint processing (max_workers={self.max_workers})")
 
     def start_processing(self):
-        """Initialize processing session"""
+        """Initialize processing session - Optimized for high throughput"""
         if not self.session:
-            # Use a TCPConnector with a reasonable limit and a more granular
-            # ClientTimeout so we can distinguish connect vs read timeouts.
-            # limit_per_host helps avoid creating excessive connections to a single host
+            # Use a TCPConnector with high limits for throughput
+            # connection_pool_size from config (default 100) allows many concurrent connections
+            # keepalive_timeout helps reuse connections for subsequent requests
+            pool_size = getattr(config, 'connection_pool_size', 100)
+            enable_keepalive = getattr(config, 'enable_keepalive', True)
+            
             connector = aiohttp.TCPConnector(
-                limit=self.max_workers, limit_per_host=self.max_workers, enable_cleanup_closed=True)
-            # configure connect and sock_read timeouts to avoid long hangs
-            connect_timeout = min(
-                10, max(1, int(getattr(config, 'request_timeout', 150))))
-            sock_read = max(30, int(getattr(config, 'request_timeout', 150)))
-            timeout = aiohttp.ClientTimeout(total=getattr(config, 'request_timeout', 150),
-                                            connect=connect_timeout,
-                                            sock_connect=connect_timeout,
-                                            sock_read=sock_read)
+                limit=pool_size,
+                limit_per_host=pool_size,  # Allow many connections to the LLM API
+                enable_cleanup_closed=True,
+                keepalive_timeout=30 if enable_keepalive else 0,
+                force_close=not enable_keepalive
+            )
+            
+            # Configure timeouts - use shorter timeouts since LLM model processes quickly
+            request_timeout = getattr(config, 'request_timeout', 90)
+            connect_timeout = min(10, max(1, int(request_timeout)))
+            sock_read = max(30, int(request_timeout))
+            
+            timeout = aiohttp.ClientTimeout(
+                total=request_timeout,
+                connect=connect_timeout,
+                sock_connect=connect_timeout,
+                sock_read=sock_read
+            )
+            
             # store for per-request usage
             self._client_timeout = timeout
             self.session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=timeout
             )
-            logger.debug("Started aiohttp session (connect=%ss sock_read=%ss total=%s)",
-                         connect_timeout, sock_read, getattr(config, 'request_timeout', None))
+            logger.info(
+                "Started aiohttp session (pool_size=%d, keepalive=%s, timeout=%ss)",
+                pool_size, enable_keepalive, request_timeout
+            )
 
     async def stop_processing(self):
         """Clean up processing session"""

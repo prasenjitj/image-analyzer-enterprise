@@ -10,6 +10,7 @@ import time
 import signal
 import sys
 import hashlib
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Union
 import multiprocessing as mp
@@ -24,14 +25,23 @@ from .job_queue import job_queue, Job
 from .processor import ImageProcessor
 from .cache import get_cache
 
+# At the top of the file, update defaults
+
+# Maximum concurrent batch processing tasks - match LLM model capacity
+MAX_CONCURRENT_BATCHES = int(os.getenv("MAX_CONCURRENT_BATCHES", "4"))
+
+# Batch size for processing - process more URLs per batch
+BATCH_PROCESS_SIZE = int(os.getenv("BATCH_PROCESS_SIZE", "50"))
+
 logger = logging.getLogger(__name__)
 
 
 class ChunkProcessor:
-    """Processes individual chunks of URLs"""
+    """Processes individual chunks of URLs - Optimized for high throughput"""
 
     def __init__(self, worker_id: str):
         self.worker_id = worker_id
+        # Use max_concurrent_requests (16) for parallel URL processing within each chunk
         self.processor = ImageProcessor(
             api_keys=config.api_keys_list,
             max_workers=config.max_concurrent_requests
@@ -39,7 +49,7 @@ class ChunkProcessor:
         self.cache = get_cache(config.cache_db_path)
         self.should_stop = False
 
-        logger.info(f"ChunkProcessor {worker_id} initialized")
+        logger.info(f"ChunkProcessor {worker_id} initialized with {config.max_concurrent_requests} concurrent requests")
 
     async def process_chunk(self, batch_id: str, chunk_id: str, data: List[Any]) -> Dict[str, Any]:
         """Process a chunk of URLs or listing data"""
@@ -85,8 +95,9 @@ class ChunkProcessor:
                 # Start the processor
                 self.processor.start_processing()
 
-                # Process in smaller batches for better progress tracking
-                batch_size = min(100, len(urls_to_process))
+                # Process in larger batches for better throughput with LLM model
+                # The LLM model batches requests internally, so we can send more at once
+                batch_size = min(200, len(urls_to_process))  # Increased from 100 for better batching
 
                 for i in range(0, len(urls_to_process), batch_size):
                     if self.should_stop:
@@ -95,8 +106,8 @@ class ChunkProcessor:
                         break
 
                     batch_urls = urls_to_process[i:i + batch_size]
-                    logger.debug(
-                        f"Processing sub-batch {i//batch_size + 1} of chunk {chunk_id}")
+                    logger.info(
+                        f"Processing sub-batch {i//batch_size + 1}/{(len(urls_to_process) + batch_size - 1)//batch_size} of chunk {chunk_id} ({len(batch_urls)} URLs)")
 
                     # Process batch of URLs
                     batch_results = await self.processor.process_batch(batch_urls)
