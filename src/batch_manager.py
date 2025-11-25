@@ -67,7 +67,8 @@ class BatchManager:
             # original batch_id visible but also indicates normalization was
             # attempted. This makes debugging client-supplied IDs easier.
             cleaned = batch_id.strip() if isinstance(batch_id, str) else batch_id
-            raise ValueError(f"Batch {batch_id} not found (normalized: {cleaned})")
+            raise ValueError(
+                f"Batch {batch_id} not found (normalized: {cleaned})")
         return batch
 
     @staticmethod
