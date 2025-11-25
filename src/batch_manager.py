@@ -3,6 +3,7 @@ Comprehensive batch management system for enterprise image processing
 """
 import csv
 import io
+import json
 import logging
 import hashlib
 import uuid
@@ -35,6 +36,26 @@ class BatchManager:
     @staticmethod
     def _get_batch_by_id(session, batch_id: str) -> Optional[ProcessingBatch]:
         """Get batch by ID with error handling"""
+        # Try to be permissive about incoming batch_id formats (strip spaces,
+        # accept UUID strings and UUID objects). Normalizing the value helps
+        # avoid surprising 'not found' errors due to leading/trailing spaces or
+        # slight formatting differences.
+        try:
+            # Accept UUID objects or strings
+            if isinstance(batch_id, str):
+                batch_id = batch_id.strip()
+                try:
+                    # This will convert valid UUID strings into uuid.UUID objects
+                    batch_id = uuid.UUID(batch_id)
+                except Exception:
+                    # Leave as string if it can't be parsed as UUID — the DB
+                    # query may still match if the column stores text.
+                    pass
+        except Exception:
+            # Be defensive — if normalization fails just continue with the
+            # original value so the query can decide.
+            pass
+
         return session.query(ProcessingBatch).filter_by(batch_id=batch_id).first()
 
     @staticmethod
@@ -42,7 +63,11 @@ class BatchManager:
         """Get batch by ID and raise error if not found"""
         batch = BatchManager._get_batch_by_id(session, batch_id)
         if not batch:
-            raise ValueError(f"Batch {batch_id} not found")
+            # Provide a slightly more diagnostic error message that keeps the
+            # original batch_id visible but also indicates normalization was
+            # attempted. This makes debugging client-supplied IDs easier.
+            cleaned = batch_id.strip() if isinstance(batch_id, str) else batch_id
+            raise ValueError(f"Batch {batch_id} not found (normalized: {cleaned})")
         return batch
 
     @staticmethod
@@ -1000,6 +1025,28 @@ class BatchManager:
                 f"Queued chunk {chunk.chunk_number} for batch {batch_id} (job: {job_id})")
 
         session.commit()
+
+    # Publish progress update to Redis pub/sub if available so UI can receive real-time updates
+    try:
+        payload = {
+            'batch_id': batch_id,
+            'processed_count': total_processed,
+            'successful_count': total_successful,
+            'failed_count': total_failed,
+            'progress_percentage': round((total_processed / batch.total_urls) * 100, 2) if batch.total_urls > 0 else 0,
+            'total_urls': batch.total_urls,
+            'status': batch.status.value if hasattr(batch.status, 'value') else str(batch.status)
+        }
+
+        try:
+            if job_queue and getattr(job_queue, 'redis_client', None):
+                channel = f"batch:{batch_id}:progress"
+                job_queue.redis_client.publish(channel, json.dumps(payload))
+        except Exception:
+            logger.debug("Could not publish progress update to Redis pub/sub")
+    except Exception:
+        # Non-fatal; do not raise from publisher
+        pass
 
     def _queue_pending_chunks(self, session, batch_id: str):
         """Queue all pending chunks for processing"""

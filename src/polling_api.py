@@ -7,6 +7,10 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from src.batch_manager import batch_manager
+from src.job_queue import job_queue
+from flask import Response, stream_with_context
+import time
+import json
 from src.database_models import BatchStatus
 from src.enterprise_config import config
 
@@ -658,6 +662,108 @@ def health_check():
             'status': 'unhealthy',
             'timestamp': datetime.now().isoformat()
         }), 500
+
+
+@polling_api.route('/batches/<batch_id>/stream', methods=['GET'])
+def stream_batch_progress(batch_id: str):
+    """Stream real-time batch progress via Server-Sent Events (SSE).
+
+    Uses Redis pub/sub (`batch:<batch_id>:progress`) when Redis is available; otherwise
+    falls back to lightweight polling of `batch_manager.get_batch_status()`.
+    """
+
+    def event_generator():
+        pubsub = None
+        try:
+            # Prefer Redis pubsub when available
+            if getattr(job_queue, 'redis_client', None):
+                # Use non-blocking get_message with a short timeout instead of
+                # pubsub.listen() which can raise downstream socket timeouts
+                # that would bubble up after response headers are sent.
+                pubsub = job_queue.redis_client.pubsub(
+                    ignore_subscribe_messages=True)
+                channel = f"batch:{batch_id}:progress"
+                pubsub.subscribe(channel)
+                try:
+                    import redis as _redis
+                    # Loop and poll Redis with a short timeout so we can handle
+                    # transient connection/read errors without raising from the
+                    # generator (which would crash the streamed response once
+                    # headers have been sent).
+                    while True:
+                        try:
+                            message = pubsub.get_message(timeout=1)
+                            if not message:
+                                # No message received within timeout; continue loop
+                                # allowing generator to stay alive and to detect
+                                # client disconnects.
+                                time.sleep(0.1)
+                                continue
+
+                            if message.get('type') == 'message':
+                                data = message.get('data')
+                                if isinstance(data, bytes):
+                                    try:
+                                        text = data.decode('utf-8')
+                                    except Exception:
+                                        text = json.dumps({'raw': str(data)})
+                                else:
+                                    text = json.dumps(data)
+                                yield f"data: {text}\n\n"
+
+                        except _redis.exceptions.TimeoutError:
+                            # Treat as transient; continue polling.
+                            continue
+                        except _redis.exceptions.ConnectionError as e:
+                            logger.warning(
+                                f"Redis connection error while streaming batch {batch_id}: {e}")
+                            break
+                        except Exception as e:
+                            # Log and break to fall back to polling below. Do not
+                            # re-raise, because raising here would happen after
+                            # headers are sent and will surface as a framework
+                            # middleware error.
+                            logger.warning(
+                                f"Unexpected Redis pubsub error for batch {batch_id}: {e}")
+                            break
+                finally:
+                    try:
+                        pubsub.close()
+                    except Exception:
+                        pass
+            else:
+                # Fallback polling loop
+                last_payload = None
+                while True:
+                    try:
+                        status = batch_manager.get_batch_status(batch_id)
+                        payload = {
+                            'batch_id': batch_id,
+                            'processed_count': status['progress']['processed_count'],
+                            'successful_count': status['progress']['successful_count'],
+                            'failed_count': status['progress']['failed_count'],
+                            'progress_percentage': status['progress']['progress_percentage'],
+                            'total_urls': status['progress']['total_urls'],
+                            'status': status['batch_info']['status']
+                        }
+                        s = json.dumps(payload)
+                        if s != last_payload:
+                            last_payload = s
+                            yield f"data: {s}\n\n"
+                        time.sleep(1)
+                    except GeneratorExit:
+                        break
+                    except Exception:
+                        time.sleep(1)
+                        continue
+        finally:
+            try:
+                if pubsub:
+                    pubsub.close()
+            except Exception:
+                pass
+
+    return Response(stream_with_context(event_generator()), mimetype='text/event-stream')
 
 
 # Error handlers
