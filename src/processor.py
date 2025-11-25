@@ -35,7 +35,7 @@ class ProcessingResult:
 
 
 class ImageProcessor:
-    """Enterprise image processor using API endpoint"""
+    """Enterprise image processor using API endpoint with multi-GPU load balancing"""
 
     def __init__(self, api_keys: List[str] = None, max_workers: Optional[int] = None):
         self.api_keys = api_keys or config.api_keys_list
@@ -45,11 +45,18 @@ class ImageProcessor:
         self.session: Optional[aiohttp.ClientSession] = None
         # store the client timeout object for per-request reuse
         self._client_timeout: Optional[aiohttp.ClientTimeout] = None
+        
+        # Multi-GPU load balancing: list of API endpoints
+        self.api_endpoints = getattr(config, 'api_endpoints_list', [config.api_endpoint_url])
+        self._endpoint_index = 0
+        self._endpoint_lock = asyncio.Lock() if len(self.api_endpoints) > 1 else None
 
         logger.info(
-            f"ImageProcessor initialized with API endpoint processing")
+            f"ImageProcessor initialized with {len(self.api_endpoints)} API endpoint(s)")
         logger.info(
             f"ImageProcessor initialized with API endpoint processing (max_workers={self.max_workers})")
+        if len(self.api_endpoints) > 1:
+            logger.info(f"Load balancing across endpoints: {self.api_endpoints}")
 
     def start_processing(self):
         """Initialize processing session - Optimized for high throughput"""
@@ -106,21 +113,40 @@ class ImageProcessor:
             self.current_api_key_index + 1) % len(self.api_keys)
         return api_key
 
-    async def _download_and_resize_image(self, image_url: str, always_upload: bool = False) -> Optional[bytes]:
-        """Download image and resize if larger than 800x600.
+    async def _get_next_endpoint(self) -> str:
+        """Get next API endpoint using round-robin for multi-GPU load balancing"""
+        if len(self.api_endpoints) == 1:
+            return self.api_endpoints[0]
+        
+        # Thread-safe round-robin across endpoints
+        async with self._endpoint_lock:
+            endpoint = self.api_endpoints[self._endpoint_index]
+            self._endpoint_index = (self._endpoint_index + 1) % len(self.api_endpoints)
+            return endpoint
 
-        Returns resized image bytes (JPEG) when resizing occurred, or None
-        when download failed or resizing was not necessary.
+    async def _download_and_resize_image(self, image_url: str, always_upload: bool = False) -> Optional[bytes]:
+        """Download image and resize to max 512x512 for efficient API processing.
+
+        Returns resized image bytes (JPEG) when resizing occurred or always_upload is True,
+        or None when download failed or resizing was not necessary.
         """
         # Ensure we have a session
         if not self.session or getattr(self.session, 'closed', False):
             self.start_processing()
 
         try:
-            async with self.session.get(image_url) as img_resp:
+            # Use shorter timeout for image download (15 seconds max)
+            download_timeout = aiohttp.ClientTimeout(total=15)
+            async with self.session.get(image_url, timeout=download_timeout) as img_resp:
                 if img_resp.status != 200:
                     logger.debug(
                         'Image download returned non-200 %s for %s', img_resp.status, image_url)
+                    return None
+
+                # Check content length before downloading (10MB max)
+                content_length = img_resp.headers.get('Content-Length')
+                if content_length and int(content_length) > 10 * 1024 * 1024:
+                    logger.warning("Image too large to download: %s (%s bytes)", image_url, content_length)
                     return None
 
                 img_bytes = await img_resp.read()
@@ -128,19 +154,35 @@ class ImageProcessor:
                 try:
                     with Image.open(BytesIO(img_bytes)) as img:
                         img = ImageOps.exif_transpose(img)
-                        w, h = img.size
-                        # If image exceeds threshold, resize+pad to 512x512
-                        if w > 640 or h > 640:
+                        original_w, original_h = img.size
+                        
+                        # Target size - constrain to 512x512 max
+                        max_size = 512
+                        needs_resize = original_w > max_size or original_h > max_size
+                        
+                        if needs_resize:
+                            # Calculate scale to fit BOTH dimensions within max_size
+                            scale = min(max_size / original_w, max_size / original_h)
+                            new_w = max(1, int(original_w * scale))
+                            new_h = max(1, int(original_h * scale))
+                            
                             img = img.convert('RGB')
-                            img.thumbnail((512, 512), Image.LANCZOS)
-                            square = Image.new(
-                                'RGB', (512, 512), (255, 255, 255))
+                            img = img.resize((new_w, new_h), Image.LANCZOS)
+                            
+                            # Pad to 512x512 square with white background
+                            square = Image.new('RGB', (512, 512), (255, 255, 255))
                             paste_x = (512 - img.width) // 2
                             paste_y = (512 - img.height) // 2
                             square.paste(img, (paste_x, paste_y))
+                            
                             out_buf = BytesIO()
-                            square.save(out_buf, format='JPEG', quality=85)
+                            square.save(out_buf, format='JPEG', quality=85, optimize=True)
                             out_buf.seek(0)
+                            
+                            logger.debug(
+                                'Resized image %s from %dx%d to %dx%d (padded to 512x512)',
+                                image_url, original_w, original_h, new_w, new_h
+                            )
                             return out_buf.read()
 
                         # If caller requested always_upload, return the image
@@ -148,7 +190,7 @@ class ImageProcessor:
                         if always_upload:
                             img = img.convert('RGB')
                             out_buf = BytesIO()
-                            img.save(out_buf, format='JPEG', quality=85)
+                            img.save(out_buf, format='JPEG', quality=85, optimize=True)
                             out_buf.seek(0)
                             return out_buf.read()
 
@@ -157,6 +199,9 @@ class ImageProcessor:
                         'Failed to open/process downloaded image for %s', image_url)
                     return None
 
+        except asyncio.TimeoutError:
+            logger.warning("Timeout downloading image: %s", image_url)
+            return None
         except Exception:
             logger.debug(
                 'Failed to download image for local processing: %s', image_url)
@@ -232,10 +277,9 @@ class ImageProcessor:
             )
 
     async def _analyze_image(self, image_url: str) -> Dict[str, Any]:
-        """Analyze image using API endpoint"""
-        # Use configured API endpoint (fall back to configured default address if needed)
-        api_url = getattr(config, 'api_endpoint_url',
-                          None) or "http://34.66.92.16:8000/generate"
+        """Analyze image using API endpoint with multi-GPU load balancing"""
+        # Get next API endpoint using round-robin for load balancing
+        api_url = await self._get_next_endpoint()
 
         prompt = """
             You are an image analysis model. Carefully examine the image and determine whether it shows a physical store or business establishment. 

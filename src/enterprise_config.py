@@ -14,9 +14,12 @@ load_dotenv()
 class EnterpriseConfig(BaseSettings):
     """Enterprise configuration for batch processing - Optimized for throughput"""
 
-    # API Configuration
+    # API Configuration - supports multiple endpoints for load balancing
     api_endpoint_url: str = Field(
-        "http://34.66.92.16:8000/generate", env="API_ENDPOINT_URL")
+        "http://localhost:8000/generate", env="API_ENDPOINT_URL")
+    # Comma-separated list of API endpoints for multi-GPU load balancing
+    api_endpoint_urls: Optional[str] = Field(
+        None, env="API_ENDPOINT_URLS")
     # Kept for backward compatibility
     google_api_key: str = Field("", env="GOOGLE_API_KEY")
     google_api_keys: Optional[str] = Field(
@@ -142,6 +145,15 @@ class EnterpriseConfig(BaseSettings):
         elif self.google_api_key:
             return [self.google_api_key.strip()]
         return []  # External API endpoint doesn't need API keys
+
+    @property
+    def api_endpoints_list(self) -> List[str]:
+        """Get list of API endpoints for load balancing across multiple GPUs"""
+        if self.api_endpoint_urls:
+            endpoints = [url.strip() for url in self.api_endpoint_urls.split(',')]
+            return [e for e in endpoints if e]
+        # Fall back to single endpoint
+        return [self.api_endpoint_url]
 
     @property
     def is_postgresql(self) -> bool:
