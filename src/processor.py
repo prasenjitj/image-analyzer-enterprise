@@ -1,5 +1,10 @@
 """
 Image processing module using API endpoint for enterprise batch processing
+
+Includes resilience patterns for high-throughput processing:
+- Circuit breaker to stop flooding when API is overwhelmed
+- Adaptive rate limiting to match API capacity
+- Backpressure queue to limit concurrent requests
 """
 import asyncio
 import aiohttp
@@ -16,6 +21,14 @@ from PIL import Image, ImageOps
 from urllib.parse import urlparse
 
 from .enterprise_config import config
+from .resilience import (
+    get_resilient_client,
+    ResilientAPIClient,
+    CircuitBreakerConfig,
+    AdaptiveRateLimiterConfig,
+    BackpressureQueueConfig,
+    CircuitState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +48,7 @@ class ProcessingResult:
 
 
 class ImageProcessor:
-    """Enterprise image processor using API endpoint with multi-GPU load balancing"""
+    """Enterprise image processor using API endpoint with multi-GPU load balancing and resilience patterns"""
 
     def __init__(self, api_keys: List[str] = None, max_workers: Optional[int] = None):
         self.api_keys = api_keys or config.api_keys_list
@@ -50,13 +63,65 @@ class ImageProcessor:
         self.api_endpoints = getattr(config, 'api_endpoints_list', [config.api_endpoint_url])
         self._endpoint_index = 0
         self._endpoint_lock = asyncio.Lock() if len(self.api_endpoints) > 1 else None
+        
+        # Initialize resilient API client with configuration tuned for the workload
+        self._init_resilience()
 
         logger.info(
             f"ImageProcessor initialized with {len(self.api_endpoints)} API endpoint(s)")
         logger.info(
             f"ImageProcessor initialized with API endpoint processing (max_workers={self.max_workers})")
+        logger.info(
+            f"Resilience enabled: circuit_breaker, adaptive_rate_limiter, backpressure_queue")
         if len(self.api_endpoints) > 1:
             logger.info(f"Load balancing across endpoints: {self.api_endpoints}")
+
+    def _init_resilience(self):
+        """Initialize resilience patterns with configuration from environment or defaults"""
+        # Get configuration values
+        max_concurrent = int(os.environ.get('RESILIENCE_MAX_CONCURRENT', '8'))
+        max_queue = int(os.environ.get('RESILIENCE_MAX_QUEUE', '500'))
+        initial_rate = float(os.environ.get('RESILIENCE_INITIAL_RATE', '8.0'))
+        
+        circuit_config = CircuitBreakerConfig(
+            failure_threshold=int(os.environ.get('CIRCUIT_FAILURE_THRESHOLD', '15')),
+            success_threshold=int(os.environ.get('CIRCUIT_SUCCESS_THRESHOLD', '5')),
+            timeout_seconds=float(os.environ.get('CIRCUIT_TIMEOUT_SECONDS', '120.0')),
+            half_open_max_requests=5,
+            timeout_failure_weight=2.0,
+            slow_call_threshold_ms=float(os.environ.get('SLOW_CALL_THRESHOLD_MS', '60000')),
+        )
+        
+        rate_config = AdaptiveRateLimiterConfig(
+            initial_rate=initial_rate,
+            min_rate=float(os.environ.get('RESILIENCE_MIN_RATE', '1.0')),
+            max_rate=float(os.environ.get('RESILIENCE_MAX_RATE', '20.0')),
+            target_response_time_ms=float(os.environ.get('TARGET_RESPONSE_TIME_MS', '3000')),
+            slow_threshold_ms=float(os.environ.get('SLOW_THRESHOLD_MS', '30000')),
+            critical_threshold_ms=float(os.environ.get('CRITICAL_THRESHOLD_MS', '60000')),
+            window_size=30,
+            adjustment_interval=10.0,
+        )
+        
+        queue_config = BackpressureQueueConfig(
+            max_concurrent=max_concurrent,
+            max_queue_size=max_queue,
+            queue_timeout=float(os.environ.get('QUEUE_TIMEOUT', '180.0')),
+            high_watermark=0.75,
+            low_watermark=0.5,
+        )
+        
+        self.resilient_client = ResilientAPIClient(
+            circuit_config=circuit_config,
+            rate_config=rate_config,
+            queue_config=queue_config,
+            name="llm_api"
+        )
+        
+        logger.info(
+            f"Resilience configured: max_concurrent={max_concurrent}, max_queue={max_queue}, "
+            f"initial_rate={initial_rate}/s"
+        )
 
     def start_processing(self):
         """Initialize processing session - Optimized for high throughput"""
@@ -103,6 +168,14 @@ class ImageProcessor:
         if self.session:
             await self.session.close()
             self.session = None
+    
+    def get_resilience_stats(self) -> Dict[str, Any]:
+        """Get current resilience pattern statistics"""
+        return self.resilient_client.get_stats()
+    
+    async def reset_resilience(self):
+        """Reset resilience patterns (useful after recovery)"""
+        await self.resilient_client.reset()
 
     def get_next_api_key(self) -> str:
         """Get next API key (round-robin) - kept for compatibility"""
@@ -277,7 +350,41 @@ class ImageProcessor:
             )
 
     async def _analyze_image(self, image_url: str) -> Dict[str, Any]:
-        """Analyze image using API endpoint with multi-GPU load balancing"""
+        """Analyze image using API endpoint with multi-GPU load balancing and resilience patterns"""
+        
+        # Check circuit breaker state first (fast fail)
+        if self.resilient_client.circuit_breaker.is_open:
+            # Circuit is open - check if we can proceed
+            if not await self.resilient_client.circuit_breaker.can_execute():
+                raise Exception(
+                    f"Circuit breaker OPEN - API is overwhelmed. Rejecting request for {image_url}. "
+                    f"Will retry after recovery period."
+                )
+        
+        # Acquire permission through all resilience gates
+        request_start_time = time.time()
+        acquired = await self.resilient_client.acquire(timeout=120.0)
+        
+        if not acquired:
+            # Request was rejected by one of the resilience patterns
+            stats = self.resilient_client.get_stats()
+            raise Exception(
+                f"Request rejected by resilience layer for {image_url}. "
+                f"Circuit: {stats['circuit_breaker']['state']}, "
+                f"Queue: {stats['backpressure_queue']['in_flight']}/{stats['backpressure_queue']['max_concurrent']}, "
+                f"Rate: {stats['rate_limiter']['current_rate']:.1f}/s"
+            )
+        
+        try:
+            # Proceed with the actual API call
+            result = await self._make_api_request(image_url, request_start_time)
+            return result
+        finally:
+            # Always release the backpressure slot
+            await self.resilient_client.release()
+    
+    async def _make_api_request(self, image_url: str, request_start_time: float) -> Dict[str, Any]:
+        """Make the actual API request with retry logic"""
         # Get next API endpoint using round-robin for load balancing
         api_url = await self._get_next_endpoint()
 
@@ -455,21 +562,46 @@ class ImageProcessor:
 
                         response_text = body
                         last_exception = None
+                        
+                        # Record success with response time for adaptive rate limiting
+                        response_time = time.time() - request_start_time
+                        await self.resilient_client.record_success(response_time)
+                        logger.debug(
+                            "API request successful for %s (%.2fs)",
+                            image_url, response_time
+                        )
                         break
 
                 except asyncio.TimeoutError as e:
                     last_exception = e
+                    response_time = time.time() - request_start_time
+                    
+                    # Record timeout failure for circuit breaker and rate limiter
+                    await self.resilient_client.record_failure(
+                        is_timeout=True,
+                        response_time_seconds=response_time
+                    )
+                    
                     logger.warning(
-                        "Timeout calling API for %s (attempt %d/%d). configured_timeout=%s",
+                        "Timeout calling API for %s (attempt %d/%d). configured_timeout=%s, elapsed=%.1fs",
                         image_url,
                         attempt + 1,
                         attempts,
                         getattr(config, 'request_timeout', None),
+                        response_time,
                     )
                     await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
 
                 except aiohttp.ClientError as e:
                     last_exception = e
+                    response_time = time.time() - request_start_time
+                    
+                    # Record network failure
+                    await self.resilient_client.record_failure(
+                        is_timeout=False,
+                        response_time_seconds=response_time
+                    )
+                    
                     logger.warning(
                         "Network error calling API for %s (attempt %d/%d): %s",
                         image_url,
@@ -481,6 +613,14 @@ class ImageProcessor:
 
                 except Exception as e:
                     last_exception = e
+                    response_time = time.time() - request_start_time
+                    
+                    # Record general failure
+                    await self.resilient_client.record_failure(
+                        is_timeout=False,
+                        response_time_seconds=response_time
+                    )
+                    
                     logger.error(
                         "Unexpected error calling API for %s (attempt %d/%d): %s",
                         image_url,
@@ -492,11 +632,18 @@ class ImageProcessor:
                     break
 
             if response_text is None:
-                logger.exception(
-                    "Exhausted retries calling API for %s after %d attempts. last_exception=%s",
+                # Log resilience stats on failure
+                stats = self.resilient_client.get_stats()
+                logger.error(
+                    "Exhausted retries calling API for %s after %d attempts. "
+                    "last_exception=%s, circuit=%s, rate=%.1f/s, queue=%d/%d",
                     image_url,
                     attempts,
                     repr(last_exception),
+                    stats['circuit_breaker']['state'],
+                    stats['rate_limiter']['current_rate'],
+                    stats['backpressure_queue']['in_flight'],
+                    stats['backpressure_queue']['max_concurrent'],
                 )
                 if isinstance(last_exception, asyncio.TimeoutError):
                     raise Exception(

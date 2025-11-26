@@ -841,6 +841,112 @@ def create_enterprise_app():
             return render_template('error.html',
                                    error="Could not load system status"), 500
 
+    # Resilience patterns monitoring endpoint
+    @app.route('/api/resilience/stats')
+    def api_resilience_stats():
+        """Get resilience patterns statistics (circuit breaker, rate limiter, backpressure queue)"""
+        try:
+            from .processor import image_processor
+            
+            stats = image_processor.get_resilience_stats()
+            
+            # Add human-readable status
+            circuit_state = stats['circuit_breaker']['state']
+            if circuit_state == 'open':
+                status_message = "Circuit OPEN - API is overwhelmed, requests being rejected"
+            elif circuit_state == 'half_open':
+                status_message = "Circuit HALF-OPEN - Testing if API has recovered"
+            else:
+                status_message = "Circuit CLOSED - Normal operation"
+            
+            return jsonify({
+                'success': True,
+                'status_message': status_message,
+                'data': stats,
+                'recommendations': _get_resilience_recommendations(stats)
+            })
+        except Exception as e:
+            logger.error(f"Error getting resilience stats: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
+    @app.route('/api/resilience/reset', methods=['POST'])
+    def api_resilience_reset():
+        """Reset resilience patterns (use after API recovers)"""
+        try:
+            from .processor import image_processor
+            import asyncio
+            
+            # Run the async reset
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(image_processor.reset_resilience())
+            finally:
+                loop.close()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Resilience patterns reset to initial state'
+            })
+        except Exception as e:
+            logger.error(f"Error resetting resilience: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
+    def _get_resilience_recommendations(stats: dict) -> list:
+        """Generate recommendations based on resilience stats"""
+        recommendations = []
+        
+        cb = stats.get('circuit_breaker', {})
+        rl = stats.get('rate_limiter', {})
+        bq = stats.get('backpressure_queue', {})
+        
+        # Circuit breaker recommendations
+        if cb.get('state') == 'open':
+            recommendations.append(
+                "Circuit breaker is OPEN. Wait for recovery period or manually reset after verifying API health."
+            )
+        if cb.get('total_timeouts', 0) > 10:
+            recommendations.append(
+                f"High timeout count ({cb.get('total_timeouts')}). Consider increasing REQUEST_TIMEOUT or reducing load."
+            )
+        
+        # Rate limiter recommendations
+        current_rate = rl.get('current_rate', 0)
+        if current_rate < 2:
+            recommendations.append(
+                f"Rate limiter at minimum ({current_rate:.1f}/s). API is severely constrained."
+            )
+        avg_response = rl.get('avg_response_ms', 0)
+        if avg_response > 30000:
+            recommendations.append(
+                f"Average response time is high ({avg_response/1000:.1f}s). API may be overloaded."
+            )
+        
+        # Backpressure queue recommendations
+        if bq.get('is_under_pressure'):
+            recommendations.append(
+                f"Backpressure queue under pressure ({bq.get('in_flight')}/{bq.get('max_concurrent')} slots used)."
+            )
+        if bq.get('total_rejected', 0) > 0:
+            recommendations.append(
+                f"{bq.get('total_rejected')} requests rejected due to queue overflow. Consider reducing batch size."
+            )
+        if bq.get('total_timeouts', 0) > 0:
+            recommendations.append(
+                f"{bq.get('total_timeouts')} requests timed out waiting in queue. Consider increasing QUEUE_TIMEOUT."
+            )
+        
+        if not recommendations:
+            recommendations.append("System operating normally.")
+        
+        return recommendations
+
     # Administrative endpoints for managing stuck jobs
     @app.route('/admin/queue/status')
     def admin_queue_status():
