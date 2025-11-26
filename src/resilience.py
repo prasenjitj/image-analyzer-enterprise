@@ -45,23 +45,23 @@ class CircuitBreakerConfig:
 @dataclass
 class AdaptiveRateLimiterConfig:
     """Configuration for adaptive rate limiter"""
-    initial_rate: float = 16.0            # Initial requests per second
-    min_rate: float = 2.0                 # Minimum requests per second
+    initial_rate: float = 20.0            # Initial requests per second (increased for A100)
+    min_rate: float = 8.0                 # Minimum requests per second (increased - GPUs are fast)
     max_rate: float = 50.0                # Maximum requests per second
     
-    # Response time thresholds (milliseconds)
-    target_response_time_ms: float = 5000    # Target: 5 seconds
-    slow_threshold_ms: float = 15000         # Slow: > 15 seconds
-    critical_threshold_ms: float = 45000     # Critical: > 45 seconds
+    # Response time thresholds (milliseconds) - tuned for fast A100 GPUs
+    target_response_time_ms: float = 3000    # Target: 3 seconds (A100 is fast)
+    slow_threshold_ms: float = 30000         # Slow: > 30 seconds (increased tolerance)
+    critical_threshold_ms: float = 90000     # Critical: > 90 seconds (increased tolerance)
     
-    # Rate adjustment factors
-    increase_factor: float = 1.1          # Rate increase when fast
-    decrease_factor: float = 0.7          # Rate decrease when slow
-    critical_decrease_factor: float = 0.4 # Rate decrease when critical
+    # Rate adjustment factors - less aggressive to maintain stability
+    increase_factor: float = 1.15         # Rate increase when fast (15%)
+    decrease_factor: float = 0.85         # Rate decrease when slow (15% drop, not 30%)
+    critical_decrease_factor: float = 0.6 # Rate decrease when critical (40% drop, not 60%)
     
-    # Measurement window
-    window_size: int = 50                 # Number of samples for averaging
-    adjustment_interval: float = 5.0      # Seconds between rate adjustments
+    # Measurement window - larger for more stability
+    window_size: int = 100                # Number of samples for averaging (increased)
+    adjustment_interval: float = 10.0     # Seconds between rate adjustments (slower)
 
 
 @dataclass
@@ -660,23 +660,26 @@ def get_resilient_client() -> ResilientAPIClient:
         # Tuned for Qwen VL model which takes 3-10 seconds per image
         
         circuit_config = CircuitBreakerConfig(
-            failure_threshold=int(os.getenv('CIRCUIT_FAILURE_THRESHOLD', '25')),
+            failure_threshold=int(os.getenv('CIRCUIT_FAILURE_THRESHOLD', '50')),  # Increased
             success_threshold=int(os.getenv('CIRCUIT_SUCCESS_THRESHOLD', '3')),
-            timeout_seconds=float(os.getenv('CIRCUIT_TIMEOUT_SECONDS', '60')),
+            timeout_seconds=float(os.getenv('CIRCUIT_TIMEOUT_SECONDS', '30')),  # Faster recovery
             half_open_max_requests=int(os.getenv('CIRCUIT_HALF_OPEN_MAX', '100')),  # Allow many in half-open
-            timeout_failure_weight=float(os.getenv('TIMEOUT_FAILURE_WEIGHT', '2.0')),
-            slow_call_threshold_ms=float(os.getenv('SLOW_CALL_THRESHOLD_MS', '120000')),  # 2 minutes
+            timeout_failure_weight=float(os.getenv('TIMEOUT_FAILURE_WEIGHT', '1.5')),  # Less aggressive
+            slow_call_threshold_ms=float(os.getenv('SLOW_CALL_THRESHOLD_MS', '60000')),  # 1 minute
         )
         
         rate_config = AdaptiveRateLimiterConfig(
-            initial_rate=float(os.getenv('RESILIENCE_INITIAL_RATE', '10.0')),
-            min_rate=float(os.getenv('RESILIENCE_MIN_RATE', '2.0')),
-            max_rate=float(os.getenv('RESILIENCE_MAX_RATE', '30.0')),
-            target_response_time_ms=float(os.getenv('TARGET_RESPONSE_TIME_MS', '8000')),  # 8s target
-            slow_threshold_ms=float(os.getenv('SLOW_THRESHOLD_MS', '60000')),  # 60s slow
-            critical_threshold_ms=float(os.getenv('CRITICAL_THRESHOLD_MS', '120000')),  # 2min critical
-            window_size=int(os.getenv('RATE_WINDOW_SIZE', '50')),
-            adjustment_interval=float(os.getenv('RATE_ADJUSTMENT_INTERVAL', '15.0')),
+            initial_rate=float(os.getenv('RESILIENCE_INITIAL_RATE', '20.0')),
+            min_rate=float(os.getenv('RESILIENCE_MIN_RATE', '8.0')),
+            max_rate=float(os.getenv('RESILIENCE_MAX_RATE', '50.0')),
+            target_response_time_ms=float(os.getenv('TARGET_RESPONSE_TIME_MS', '3000')),  # 3s target for A100
+            slow_threshold_ms=float(os.getenv('SLOW_THRESHOLD_MS', '30000')),  # 30s slow
+            critical_threshold_ms=float(os.getenv('CRITICAL_THRESHOLD_MS', '90000')),  # 90s critical
+            window_size=int(os.getenv('RATE_WINDOW_SIZE', '100')),
+            adjustment_interval=float(os.getenv('RATE_ADJUSTMENT_INTERVAL', '10.0')),
+            increase_factor=float(os.getenv('RATE_INCREASE_FACTOR', '1.15')),
+            decrease_factor=float(os.getenv('RATE_DECREASE_FACTOR', '0.85')),
+            critical_decrease_factor=float(os.getenv('RATE_CRITICAL_DECREASE_FACTOR', '0.6')),
         )
         
         queue_config = BackpressureQueueConfig(
