@@ -675,6 +675,90 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- Dynamic Column Filter -->
+                    <div class="mt-4 p-4 bg-white border border-gray-200 rounded-lg">
+                        <div class="flex items-center gap-2 mb-3">
+                            <i class="fas fa-filter text-purple-600"></i>
+                            <span class="text-sm font-medium text-gray-700">Advanced Column Filter</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <!-- Column Selector -->
+                            <div>
+                                <label for="filterColumn" class="block text-sm font-medium text-gray-600 mb-1">
+                                    Choose Column
+                                </label>
+                                <select id="filterColumn"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                                    <option value="">-- Select Column --</option>
+                                    <option value="serial_number">Serial No.</option>
+                                    <option value="business_name">Business Name</option>
+                                    <option value="input_phone_number">Phone Number (Input)</option>
+                                    <option value="store_name">AI Store Name</option>
+                                    <option value="business_contact">Contact</option>
+                                    <option value="text_content">Content</option>
+                                    <option value="image_description">Description</option>
+                                    <option value="url">URL</option>
+                                    <option value="store_front_match">Store Front Match</option>
+                                    <option value="phone_match">Phone Match</option>
+                                    <option value="success">Status (success/failed)</option>
+                                </select>
+                            </div>
+
+                            <!-- Filter Operator -->
+                            <div>
+                                <label for="filterOperator" class="block text-sm font-medium text-gray-600 mb-1">
+                                    Operator
+                                </label>
+                                <select id="filterOperator"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                                    <option value="contains">Contains</option>
+                                    <option value="equals">Equals</option>
+                                    <option value="starts_with">Starts With</option>
+                                    <option value="ends_with">Ends With</option>
+                                    <option value="not_contains">Does Not Contain</option>
+                                    <option value="is_empty">Is Empty</option>
+                                    <option value="is_not_empty">Is Not Empty</option>
+                                </select>
+                            </div>
+
+                            <!-- Filter Value -->
+                            <div>
+                                <label for="filterValue" class="block text-sm font-medium text-gray-600 mb-1">
+                                    Value
+                                </label>
+                                <input type="text" id="filterValue" placeholder="Enter filter value..."
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-purple-500 focus:border-purple-500">
+                            </div>
+
+                            <!-- Apply/Clear Buttons -->
+                            <div class="flex items-end gap-2">
+                                <button id="applyColumnFilter"
+                                    class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center">
+                                    <i class="fas fa-check mr-2"></i>
+                                    Apply
+                                </button>
+                                <button id="clearColumnFilter"
+                                    class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center">
+                                    <i class="fas fa-times mr-2"></i>
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Active Filter Display -->
+                        <div id="activeColumnFilter"
+                            class="hidden mt-3 p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-purple-800">
+                                    <i class="fas fa-filter mr-1"></i>
+                                    Active Filter: <span id="activeFilterText" class="font-medium"></span>
+                                </span>
+                                <button id="removeActiveFilter" class="text-purple-600 hover:text-purple-800">
+                                    <i class="fas fa-times-circle"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Loading State -->
@@ -1483,6 +1567,13 @@
         let currentSort = null;
         let sortDirection = 'asc';
 
+        // Column filter state
+        let columnFilter = {
+            column: '',
+            operator: 'contains',
+            value: ''
+        };
+
         async function fetchBatchData() {
             const storeImage = document.getElementById('filterStoreImage').value;
             const batchId = document.getElementById('filterBatchId').value;
@@ -1500,7 +1591,11 @@
                 store_image: storeImage,
                 ...(batchId && { batch_id: batchId }),
                 ...(phoneNumber && { phone_number: phoneNumber }),
-                ...(currentSort && { sort: `${currentSort}:${sortDirection}` })
+                ...(currentSort && { sort: `${currentSort}:${sortDirection}` }),
+                // Add column filter parameters
+                ...(columnFilter.column && { filter_column: columnFilter.column }),
+                ...(columnFilter.column && { filter_operator: columnFilter.operator }),
+                ...(columnFilter.column && columnFilter.value && { filter_value: columnFilter.value })
             });
 
             try {
@@ -1717,11 +1812,136 @@
                     const params = new URLSearchParams({
                         store_image: storeImage,
                         ...(batchId && { batch_id: batchId }),
-                        ...(phoneNumber && { phone_number: phoneNumber })
+                        ...(phoneNumber && { phone_number: phoneNumber }),
+                        // Include column filter in export
+                        ...(columnFilter.column && { filter_column: columnFilter.column }),
+                        ...(columnFilter.column && { filter_operator: columnFilter.operator }),
+                        ...(columnFilter.column && columnFilter.value && { filter_value: columnFilter.value })
                     });
 
                     window.location.href = `/api/v1/batch-data/export?${params}`;
                     showNotification('CSV export started', 'success');
+                });
+            }
+
+            // ========== Column Filter Functionality ==========
+            const filterColumnSelect = document.getElementById('filterColumn');
+            const filterOperatorSelect = document.getElementById('filterOperator');
+            const filterValueInput = document.getElementById('filterValue');
+            const applyColumnFilterBtn = document.getElementById('applyColumnFilter');
+            const clearColumnFilterBtn = document.getElementById('clearColumnFilter');
+            const activeColumnFilterDiv = document.getElementById('activeColumnFilter');
+            const activeFilterText = document.getElementById('activeFilterText');
+            const removeActiveFilterBtn = document.getElementById('removeActiveFilter');
+
+            // Column name mapping for display
+            const columnDisplayNames = {
+                'serial_number': 'Serial No.',
+                'business_name': 'Business Name',
+                'input_phone_number': 'Phone Number (Input)',
+                'store_name': 'AI Store Name',
+                'business_contact': 'Contact',
+                'text_content': 'Content',
+                'image_description': 'Description',
+                'url': 'URL',
+                'store_front_match': 'Store Front Match',
+                'phone_match': 'Phone Match',
+                'success': 'Status'
+            };
+
+            // Operator display names
+            const operatorDisplayNames = {
+                'contains': 'contains',
+                'equals': 'equals',
+                'starts_with': 'starts with',
+                'ends_with': 'ends with',
+                'not_contains': 'does not contain',
+                'is_empty': 'is empty',
+                'is_not_empty': 'is not empty'
+            };
+
+            // Show/hide value input based on operator
+            if (filterOperatorSelect) {
+                filterOperatorSelect.addEventListener('change', () => {
+                    const operator = filterOperatorSelect.value;
+                    if (operator === 'is_empty' || operator === 'is_not_empty') {
+                        filterValueInput.disabled = true;
+                        filterValueInput.value = '';
+                        filterValueInput.placeholder = 'Not required';
+                    } else {
+                        filterValueInput.disabled = false;
+                        filterValueInput.placeholder = 'Enter filter value...';
+                    }
+                });
+            }
+
+            // Apply column filter
+            if (applyColumnFilterBtn) {
+                applyColumnFilterBtn.addEventListener('click', () => {
+                    const column = filterColumnSelect.value;
+                    const operator = filterOperatorSelect.value;
+                    const value = filterValueInput.value.trim();
+
+                    if (!column) {
+                        showNotification('Please select a column to filter', 'warning');
+                        return;
+                    }
+
+                    if (!value && operator !== 'is_empty' && operator !== 'is_not_empty') {
+                        showNotification('Please enter a filter value', 'warning');
+                        return;
+                    }
+
+                    // Update filter state
+                    columnFilter = { column, operator, value };
+                    currentPage = 1;
+
+                    // Update active filter display
+                    const displayText = operator === 'is_empty' || operator === 'is_not_empty'
+                        ? `${columnDisplayNames[column]} ${operatorDisplayNames[operator]}`
+                        : `${columnDisplayNames[column]} ${operatorDisplayNames[operator]} "${value}"`;
+
+                    activeFilterText.textContent = displayText;
+                    activeColumnFilterDiv.classList.remove('hidden');
+
+                    fetchBatchData();
+                    showNotification('Column filter applied', 'success');
+                });
+            }
+
+            // Clear column filter
+            function clearFilter() {
+                columnFilter = { column: '', operator: 'contains', value: '' };
+                filterColumnSelect.value = '';
+                filterOperatorSelect.value = 'contains';
+                filterValueInput.value = '';
+                filterValueInput.disabled = false;
+                filterValueInput.placeholder = 'Enter filter value...';
+                activeColumnFilterDiv.classList.add('hidden');
+                currentPage = 1;
+                fetchBatchData();
+            }
+
+            if (clearColumnFilterBtn) {
+                clearColumnFilterBtn.addEventListener('click', () => {
+                    clearFilter();
+                    showNotification('Column filter cleared', 'info');
+                });
+            }
+
+            if (removeActiveFilterBtn) {
+                removeActiveFilterBtn.addEventListener('click', () => {
+                    clearFilter();
+                    showNotification('Column filter removed', 'info');
+                });
+            }
+
+            // Allow Enter key to apply filter
+            if (filterValueInput) {
+                filterValueInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        applyColumnFilterBtn.click();
+                    }
                 });
             }
         }

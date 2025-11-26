@@ -1779,7 +1779,7 @@ def create_enterprise_app():
         """API endpoint to get batch data with filtering, pagination, and sorting"""
         try:
             from .database_models import URLAnalysisResult, db_manager
-            from sqlalchemy import asc, desc, and_, or_, String
+            from sqlalchemy import asc, desc, and_, or_, String, func
 
             # Get query parameters
             page = request.args.get('page', 1, type=int)
@@ -1788,6 +1788,11 @@ def create_enterprise_app():
             batch_id_filter = request.args.get('batch_id', '')
             phone_number_filter = request.args.get('phone_number', '')
             sort_param = request.args.get('sort', 'created_at:desc')
+            
+            # Dynamic column filter parameters
+            filter_column = request.args.get('filter_column', '')
+            filter_operator = request.args.get('filter_operator', 'contains')
+            filter_value = request.args.get('filter_value', '')
 
             # Validate pagination
             page = max(1, page)
@@ -1830,6 +1835,43 @@ def create_enterprise_app():
                 elif phone_number_filter == 'false':
                     filters.append(or_(URLAnalysisResult.phone_number.is_(False),
                                        URLAnalysisResult.phone_number.is_(None)))
+
+                # Dynamic column filter
+                allowed_columns = [
+                    'serial_number', 'business_name', 'input_phone_number', 
+                    'store_name', 'business_contact', 'text_content',
+                    'image_description', 'url', 'store_front_match', 
+                    'phone_match', 'success'
+                ]
+                
+                if filter_column and filter_column in allowed_columns:
+                    column = getattr(URLAnalysisResult, filter_column, None)
+                    if column is not None:
+                        # Handle boolean columns specially
+                        if filter_column == 'success':
+                            if filter_operator == 'equals':
+                                bool_val = filter_value.lower() in ['true', 'yes', '1', 'success']
+                                filters.append(column == bool_val)
+                            elif filter_operator == 'is_empty':
+                                filters.append(column.is_(None))
+                            elif filter_operator == 'is_not_empty':
+                                filters.append(column.isnot(None))
+                        else:
+                            # Text column filtering
+                            if filter_operator == 'contains':
+                                filters.append(column.ilike(f'%{filter_value}%'))
+                            elif filter_operator == 'equals':
+                                filters.append(func.lower(column) == filter_value.lower())
+                            elif filter_operator == 'starts_with':
+                                filters.append(column.ilike(f'{filter_value}%'))
+                            elif filter_operator == 'ends_with':
+                                filters.append(column.ilike(f'%{filter_value}'))
+                            elif filter_operator == 'not_contains':
+                                filters.append(~column.ilike(f'%{filter_value}%'))
+                            elif filter_operator == 'is_empty':
+                                filters.append(or_(column.is_(None), column == ''))
+                            elif filter_operator == 'is_not_empty':
+                                filters.append(and_(column.isnot(None), column != ''))
 
                 # Apply all filters
                 if filters:
@@ -1892,7 +1934,7 @@ def create_enterprise_app():
         """API endpoint to export batch data as CSV with streaming"""
         try:
             from .database_models import URLAnalysisResult
-            from sqlalchemy import and_, String
+            from sqlalchemy import and_, String, func
             import csv
             import io
 
@@ -1900,6 +1942,11 @@ def create_enterprise_app():
             store_image_filter = request.args.get('store_image', 'all')
             batch_id_filter = request.args.get('batch_id', '')
             phone_number_filter = request.args.get('phone_number', '')
+            
+            # Dynamic column filter parameters
+            filter_column = request.args.get('filter_column', '')
+            filter_operator = request.args.get('filter_operator', 'contains')
+            filter_value = request.args.get('filter_value', '')
 
             # Build query
             with db_manager.get_session() as session:
@@ -1932,6 +1979,47 @@ def create_enterprise_app():
                     except ValueError:
                         filters.append(URLAnalysisResult.batch_id.cast(
                             String).ilike(f'%{batch_id_filter}%'))
+
+                # Dynamic column filter (same logic as list endpoint)
+                allowed_columns = [
+                    'serial_number', 'business_name', 'input_phone_number', 
+                    'store_name', 'business_contact', 'text_content',
+                    'image_description', 'url', 'store_front_match', 
+                    'phone_match', 'success'
+                ]
+                
+                if filter_column and filter_column in allowed_columns:
+                    column = getattr(URLAnalysisResult, filter_column, None)
+                    if column is not None:
+                        # Handle boolean columns specially
+                        if filter_column == 'success':
+                            if filter_operator == 'equals':
+                                bool_val = filter_value.lower() in ['true', 'yes', '1', 'success']
+                                filters.append(column == bool_val)
+                            elif filter_operator == 'is_empty':
+                                filters.append(column.is_(None))
+                            elif filter_operator == 'is_not_empty':
+                                filters.append(column.isnot(None))
+                        else:
+                            # Text column filtering
+                            if filter_operator == 'contains':
+                                filters.append(column.ilike(f'%{filter_value}%'))
+                            elif filter_operator == 'equals':
+                                filters.append(func.lower(column) == filter_value.lower())
+                            elif filter_operator == 'starts_with':
+                                filters.append(column.ilike(f'{filter_value}%'))
+                            elif filter_operator == 'ends_with':
+                                filters.append(column.ilike(f'%{filter_value}'))
+                            elif filter_operator == 'not_contains':
+                                filters.append(~column.ilike(f'%{filter_value}%'))
+                            elif filter_operator == 'is_empty':
+                                filters.append(or_(column.is_(None), column == ''))
+                            elif filter_operator == 'is_not_empty':
+                                filters.append(and_(column.isnot(None), column != ''))
+
+                # Apply all filters
+                if filters:
+                    query = query.filter(and_(*filters))
 
                 # Apply all filters
                 if filters:
