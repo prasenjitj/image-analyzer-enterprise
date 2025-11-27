@@ -268,6 +268,11 @@ class AdaptiveRateLimiter:
         self._total_wait_time = 0.0
         self._rate_adjustments = 0
         
+        # Rate reduction logging control (reduce log spam)
+        self._last_force_reduce_log = 0.0
+        self._force_reduce_log_cooldown = 30.0  # Only log every 30 seconds max
+        self._force_reduce_count = 0  # Count reductions between logs
+        
         logger.info(
             f"AdaptiveRateLimiter initialized: rate={self._current_rate:.1f}/s, "
             f"target_response={self.config.target_response_time_ms}ms"
@@ -374,7 +379,24 @@ class AdaptiveRateLimiter:
                 self.config.min_rate,
                 self._current_rate * factor
             )
-            logger.warning(f"Rate force-reduced: {old_rate:.1f} -> {self._current_rate:.1f}/s")
+            
+            # Track reductions for periodic logging
+            change = abs(old_rate - self._current_rate)
+            if change > 0.01:
+                self._force_reduce_count += 1
+                
+                # Only log periodically to avoid spam
+                now = time.time()
+                if now - self._last_force_reduce_log >= self._force_reduce_log_cooldown:
+                    if self._force_reduce_count > 1:
+                        logger.warning(
+                            f"Rate reduced {self._force_reduce_count}x in last {self._force_reduce_log_cooldown:.0f}s: "
+                            f"now {self._current_rate:.1f}/s (min={self.config.min_rate:.1f}/s)"
+                        )
+                    else:
+                        logger.warning(f"Rate force-reduced: {old_rate:.1f} -> {self._current_rate:.1f}/s")
+                    self._last_force_reduce_log = now
+                    self._force_reduce_count = 0
     
     def get_stats(self) -> dict:
         """Get rate limiter statistics"""
@@ -447,16 +469,17 @@ class BackpressureQueue:
         timeout = timeout or self.config.queue_timeout
         
         async with self._lock:
-            # Check if queue is full
+            # Check if queue is full (max_queue_size is for WAITING requests, not in_flight)
             if self._queue_size >= self.config.max_queue_size:
                 self._total_rejected += 1
                 logger.warning(
-                    f"BackpressureQueue: rejecting request (queue full: {self._queue_size})"
+                    f"BackpressureQueue: rejecting request (queue full: {self._queue_size}/{self.config.max_queue_size})"
                 )
                 return False
             
             self._queue_size += 1
             self._max_queue_observed = max(self._max_queue_observed, self._queue_size)
+            logger.debug(f"BackpressureQueue: request queued (queue_size={self._queue_size}, in_flight={self._in_flight}, timeout={timeout}s)")
         
         try:
             # Wait for semaphore with timeout
@@ -471,6 +494,7 @@ class BackpressureQueue:
                     self._in_flight += 1
                     self._total_acquired += 1
                     self._max_inflight_observed = max(self._max_inflight_observed, self._in_flight)
+                logger.debug(f"BackpressureQueue: slot acquired (in_flight={self._in_flight}/{self.config.max_concurrent})")
                 return True
             
             return False
@@ -479,7 +503,7 @@ class BackpressureQueue:
             async with self._lock:
                 self._queue_size -= 1
                 self._total_timeouts += 1
-            logger.warning(f"BackpressureQueue: request timed out waiting in queue")
+            logger.warning(f"BackpressureQueue: request timed out after {timeout}s waiting in queue")
             return False
     
     async def release(self):
@@ -583,16 +607,18 @@ class ResilientAPIClient:
             logger.debug(f"Request rejected by circuit breaker (state={self.circuit_breaker.state.value})")
             return False
         
-        # Gate 2: Rate limiter
-        if not await self.rate_limiter.acquire(timeout=timeout / 2):
+        # Gate 2: Rate limiter (should pass instantly since rate is set very high)
+        rate_timeout = 30.0  # Quick timeout - rate limiter should pass instantly
+        if not await self.rate_limiter.acquire(timeout=rate_timeout):
             self._rejected_requests += 1
-            logger.debug("Request rejected by rate limiter (timeout)")
+            logger.warning(f"Request rejected by rate limiter (waited {rate_timeout}s)")
             return False
         
-        # Gate 3: Backpressure queue
-        if not await self.backpressure_queue.acquire(timeout=timeout / 2):
+        # Gate 3: Backpressure queue (main concurrency control - give it most of the timeout)
+        queue_timeout = max(30.0, timeout - 30.0)  # Give queue majority of timeout
+        if not await self.backpressure_queue.acquire(timeout=queue_timeout):
             self._rejected_requests += 1
-            logger.debug("Request rejected by backpressure queue")
+            logger.warning(f"Request rejected by backpressure queue (waited up to {queue_timeout}s)")
             return False
         
         return True
@@ -609,9 +635,12 @@ class ResilientAPIClient:
         await self.circuit_breaker.record_success(response_time_ms)
         await self.rate_limiter.record_response_time(response_time_ms)
         
-        # If response was slow, also reduce rate slightly
-        if response_time_ms > self.rate_limiter.config.slow_threshold_ms:
-            await self.rate_limiter.force_reduce_rate(0.9)
+        # Don't force-reduce rate on slow successes - let record_response_time handle it
+        # The adaptive rate limiter already considers response times in its window
+        # Only reduce rate for CRITICAL responses (e.g., > 45 seconds)
+        critical_threshold = self.rate_limiter.config.slow_threshold_ms * 1.8
+        if response_time_ms > critical_threshold:
+            await self.rate_limiter.force_reduce_rate(0.95)  # Very gentle reduction
     
     async def record_failure(self, is_timeout: bool = False, response_time_seconds: float = 0):
         """Record failed request"""
