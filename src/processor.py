@@ -1,15 +1,14 @@
 """
-Image processing module using API endpoint for enterprise batch processing
+Image processing module using OpenRouter API for enterprise batch processing.
 
-Includes resilience patterns for high-throughput processing:
-- Circuit breaker to stop flooding when API is overwhelmed
-- Adaptive rate limiting to match API capacity
-- Backpressure queue to limit concurrent requests
+This module processes images through OpenRouter's API (using Qwen 2.5 VL or presets)
+for storefront identification and business information extraction.
 
-Performance optimizations:
-- Image prefetching: Downloads images ahead of time while GPU processes current batch
-- Connection pooling: Optimized aiohttp settings for high throughput
-- Async pipeline: Overlaps download, resize, and inference operations
+Features:
+- OpenRouter integration with SDK and HTTP fallback
+- Resilience patterns (circuit breaker, rate limiting, backpressure)
+- Image prefetching for improved throughput
+- Connection pooling and async processing
 """
 import asyncio
 import aiohttp
@@ -18,24 +17,22 @@ import time
 import hashlib
 import re
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
-from collections import deque
+from dataclasses import dataclass
 import json
 import os
 from io import BytesIO
 from PIL import Image, ImageOps
-from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
+try:
+    # OpenAI package is used as the client for OpenRouter (OpenAI-compatible API)
+    from openai import OpenAI
+    _OPENAI_AVAILABLE = True
+except Exception:
+    OpenAI = None
+    _OPENAI_AVAILABLE = False
 
 from .enterprise_config import config
-from .resilience import (
-    get_resilient_client,
-    ResilientAPIClient,
-    CircuitBreakerConfig,
-    AdaptiveRateLimiterConfig,
-    BackpressureQueueConfig,
-    CircuitState,
-)
+from .resilience import get_resilient_client
 
 logger = logging.getLogger(__name__)
 
@@ -310,41 +307,42 @@ class ImagePrefetcher:
 
 
 class ImageProcessor:
-    """Enterprise image processor using API endpoint with multi-GPU load balancing and resilience patterns"""
+    """Enterprise image processor using OpenRouter API with resilience patterns"""
 
     def __init__(self, api_keys: List[str] = None, max_workers: Optional[int] = None):
-        self.api_keys = api_keys or config.api_keys_list
+        self.api_keys = api_keys or []  # Legacy compatibility - not used with OpenRouter
         self.max_workers = max_workers if max_workers is not None else getattr(
             config, 'max_concurrent_workers', 5)
         self.current_api_key_index = 0
         self.session: Optional[aiohttp.ClientSession] = None
-        # store the client timeout object for per-request reuse
         self._client_timeout: Optional[aiohttp.ClientTimeout] = None
 
-        # Multi-GPU load balancing: list of API endpoints
-        self.api_endpoints = getattr(config, 'api_endpoints_list', [
-                                     config.api_endpoint_url])
-        self._endpoint_index = 0
-        # Always create lock for thread-safe endpoint selection
-        self._endpoint_lock = asyncio.Lock()
+        # OpenAI client for OpenRouter (initialize lazily only when available)
+        self.openai_client = None
+        if _OPENAI_AVAILABLE and getattr(config, 'openrouter_api_key', None):
+            try:
+                self.openai_client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=config.openrouter_api_key,
+                )
+                logger.info("OpenRouter client initialized")
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize OpenRouter client: %s", repr(e))
+                self.openai_client = None
 
         # Image prefetcher for pipelining downloads with inference
         self._prefetcher: Optional[ImagePrefetcher] = None
 
-        # Initialize resilient API client with configuration tuned for the workload
+        # Initialize resilient API client
         self._init_resilience()
 
         logger.info(
-            f"ImageProcessor initialized with {len(self.api_endpoints)} API endpoint(s)")
-        logger.info(
-            f"ImageProcessor initialized with API endpoint processing (max_workers={self.max_workers})")
+            f"ImageProcessor initialized (max_workers={self.max_workers})")
         logger.info(
             f"Resilience enabled: circuit_breaker, adaptive_rate_limiter, backpressure_queue")
         logger.info(
             f"Prefetching: {'enabled' if ENABLE_PREFETCH else 'disabled'} (queue={PREFETCH_QUEUE_SIZE}, concurrent={PREFETCH_CONCURRENT_DOWNLOADS})")
-        if len(self.api_endpoints) > 1:
-            logger.info(
-                f"Load balancing across endpoints: {self.api_endpoints}")
 
     def _init_resilience(self):
         """Initialize resilience patterns - uses SHARED global client for cross-worker coordination"""
@@ -444,117 +442,6 @@ class ImageProcessor:
         self.current_api_key_index = (
             self.current_api_key_index + 1) % len(self.api_keys)
         return api_key
-
-    async def _get_next_endpoint(self) -> str:
-        """Get next API endpoint using round-robin with queue-aware load balancing for multi-GPU.
-
-        Uses a hybrid approach:
-        1. Round-robin as the primary distribution (ensures both GPUs get traffic)
-        2. Queue-aware rebalancing when one GPU is significantly more loaded
-        """
-        if len(self.api_endpoints) == 1:
-            return self.api_endpoints[0]
-
-        # Initialize state if not exists
-        if not hasattr(self, '_endpoint_counter'):
-            self._endpoint_counter = 0
-            self._queue_cache = {}  # endpoint -> (queue_size, timestamp)
-            # Refresh queue info every 0.5 seconds (faster)
-            self._queue_cache_ttl = 0.5
-            self._queue_diff_threshold = 10  # Only rebalance if queue difference > threshold
-            self._health_check_lock = asyncio.Lock()
-            self._last_health_log = 0
-
-        current_time = time.time()
-
-        # Determine base endpoint using round-robin
-        async with self._endpoint_lock:
-            self._endpoint_counter += 1
-            round_robin_idx = self._endpoint_counter % len(self.api_endpoints)
-
-        base_endpoint = self.api_endpoints[round_robin_idx]
-
-        # Check if we should refresh queue info (non-blocking, best-effort)
-        should_refresh = False
-        for endpoint in self.api_endpoints:
-            cached = self._queue_cache.get(endpoint)
-            if not cached or (current_time - cached[1]) > self._queue_cache_ttl:
-                should_refresh = True
-                break
-
-        # Update queue cache in background (parallel health checks)
-        if should_refresh:
-            # Use a lock to prevent multiple concurrent health check refreshes
-            if self._health_check_lock.locked():
-                # Another task is already refreshing, use current cache
-                pass
-            else:
-                async with self._health_check_lock:
-                    await self._refresh_queue_cache(current_time)
-
-        # Check if we should rebalance based on queue sizes
-        queue_sizes = {}
-        for endpoint in self.api_endpoints:
-            cached = self._queue_cache.get(endpoint)
-            if cached:
-                queue_sizes[endpoint] = cached[0]
-            else:
-                # No cache yet, assume equal load
-                queue_sizes[endpoint] = 0
-
-        # Only rebalance if there's a significant difference
-        if len(queue_sizes) == len(self.api_endpoints):
-            min_queue = min(queue_sizes.values())
-            max_queue = max(queue_sizes.values())
-
-            # If the difference is significant, prefer the less loaded endpoint
-            if max_queue - min_queue > self._queue_diff_threshold:
-                # Find the endpoint with the shortest queue
-                best_endpoint = min(queue_sizes, key=queue_sizes.get)
-
-                # Log rebalancing decision periodically
-                if current_time - self._last_health_log > 5.0:
-                    self._last_health_log = current_time
-                    logger.info(
-                        f"Load balancing: queues={queue_sizes}, selecting {best_endpoint.split(':')[-1].split('/')[0]}"
-                    )
-
-                return best_endpoint
-
-        return base_endpoint
-
-    async def _refresh_queue_cache(self, current_time: float):
-        """Refresh queue sizes from all endpoints in parallel"""
-        async def check_endpoint(endpoint: str) -> Tuple[str, Optional[int]]:
-            try:
-                base_url = endpoint.replace('/generate', '')
-                health_url = f"{base_url}/health"
-
-                timeout = aiohttp.ClientTimeout(
-                    total=1.0)  # Increased from 0.3s
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(health_url) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            queue_size = data.get('queue_size', 0)
-                            return (endpoint, queue_size)
-            except Exception as e:
-                logger.debug(f"Health check failed for {endpoint}: {e}")
-            return (endpoint, None)
-
-        # Check all endpoints in parallel
-        tasks = [check_endpoint(ep) for ep in self.api_endpoints]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Update cache with results
-        for result in results:
-            if isinstance(result, tuple):
-                endpoint, queue_size = result
-                if queue_size is not None:
-                    self._queue_cache[endpoint] = (queue_size, current_time)
-                elif endpoint not in self._queue_cache:
-                    # If no cache and health check failed, assume moderate load
-                    self._queue_cache[endpoint] = (10, current_time)
 
     async def _download_and_resize_image(self, image_url: str, always_upload: bool = False) -> Optional[bytes]:
         """Download image and resize to max 512x512 for efficient API processing.
@@ -742,7 +629,7 @@ class ImageProcessor:
             )
 
     async def _analyze_image(self, image_url: str) -> Dict[str, Any]:
-        """Analyze image using API endpoint with multi-GPU load balancing and resilience patterns"""
+        """Analyze image using OpenRouter API with resilience patterns"""
 
         # Check circuit breaker state first (fast fail)
         if self.resilient_client.circuit_breaker.is_open:
@@ -777,9 +664,12 @@ class ImageProcessor:
             await self.resilient_client.release()
 
     async def _make_api_request(self, image_url: str, request_start_time: float) -> Dict[str, Any]:
-        """Make the actual API request with retry logic"""
-        # Get next API endpoint using round-robin for load balancing
-        api_url = await self._get_next_endpoint()
+        """Make the OpenRouter API call and normalize the JSON response"""
+
+        # Allow either SDK client or HTTP API key fallback. If neither present, fail early.
+        if not self.openai_client and not getattr(config, 'openrouter_api_key', None):
+            raise Exception(
+                "OpenRouter client not configured. Set OPENROUTER_API_KEY and/or install the openai SDK.")
 
         prompt = """
             You are an image analysis model. Carefully examine the image and determine whether it shows a physical store or business establishment. 
@@ -822,294 +712,247 @@ class ImageProcessor:
             * No markdown, comments, extra text, or explanations before or after.
         """.strip()
 
-        try:
-            # Attempt to download and resize the image before making the API request.
-            # Respect config.skip_image_download; when disabled, pass
-            # config.upload_always to control whether we always attach image bytes.
-            resized_bytes = None
-            if not getattr(config, 'skip_image_download', False):
-                resized_bytes = await self._download_and_resize_image(image_url, always_upload=getattr(config, 'upload_always', False))
+        attempts = max(1, getattr(config, 'retry_attempts', 3))
+        last_exception = None
+        response_text = None
 
-            # If configured for development debugging, save the actual bytes
-            # we will send to the API so developers can inspect them later.
-            if resized_bytes and getattr(config, 'development_mode', False) and getattr(config, 'store_sent_images', False):
-                try:
-                    # Ensure directories exist
-                    config.create_directories()
-                    filename = f"{self.get_url_hash(image_url)}_{int(time.time())}.jpg"
-                    save_path = os.path.join(config.upload_dir, filename)
-                    with open(save_path, 'wb') as f:
-                        f.write(resized_bytes)
-                    logger.debug('Saved sent image for %s to %s',
-                                 image_url, save_path)
-                except Exception:
-                    logger.exception(
-                        'Failed to save sent image for debugging: %s', image_url)
-
-            # Prepare headers (some servers require a User-Agent)
-            headers = {'User-Agent': 'ImageAnalyzerEnterprise/1.0'}
-
-            # Make API request with improved retry logging and clearer exception on exhaustion
-            attempts = max(1, getattr(config, 'retry_attempts', 3))
-            last_exception = None
-            response_text = None
-
-            # Flag to indicate we've already attempted to switch from sending
-            # an `image_url` to sending raw image bytes after a server-side
-            # rejection (some servers disable URL uploads).
-            tried_force_upload = False
-
-            for attempt in range(attempts):
-                # Diagnostic: log session timeout settings and try resolving host
-                try:
-                    logger.debug("Session timeout settings: %s",
-                                 getattr(self.session, 'timeout', None))
-                    parsed = urlparse(api_url)
-                    host = parsed.hostname
-                    port = parsed.port or (
-                        443 if parsed.scheme == 'https' else 80)
-                    loop = asyncio.get_running_loop()
-                    try:
-                        addrs = await loop.getaddrinfo(host, port)
-                        resolved = [a[4][0] for a in addrs]
-                        logger.debug("Resolved %s to %s", host, resolved)
-                    except Exception as dns_e:
-                        logger.warning(
-                            "DNS resolution failed for %s: %s", host, repr(dns_e))
-                except Exception:
-                    # Non-fatal diagnostic failure
-                    logger.debug(
-                        "Failed to run diagnostics for api_url=%s", api_url)
-                try:
-                    # Create fresh FormData for each attempt to avoid reusing a consumed
-                    # payload (which can cause hangs or unexpected behavior).
-                    data = aiohttp.FormData()
-                    data.add_field('text', prompt.strip())
-                    if resized_bytes:
-                        data.add_field('image', resized_bytes,
-                                       filename='resized.jpg', content_type='image/jpeg')
-                    else:
-                        data.add_field('image_url', image_url)
-
-                    logger.debug(
-                        "Calling API %s (attempt %d/%d) timeout=%ss; url=%s; has_image=%s",
-                        api_url,
-                        attempt + 1,
-                        attempts,
-                        getattr(config, 'request_timeout', None),
-                        image_url,
-                        bool(resized_bytes),
-                    )
-
-                    # Use the preconfigured per-session timeout for each request to
-                    # keep behavior consistent, but also pass it explicitly to
-                    # ensure per-request timeout semantics.
-                    async with self.session.post(api_url, data=data, headers=headers, timeout=self._client_timeout) as response:
-                        body = await response.text()
-
-                        if response.status != 200:
-                            lower_body = (body or "").lower()
-                            logger.warning(
-                                "API returned non-200 status %s for %s (attempt %d/%d). Body snippet: %s",
-                                response.status, image_url, attempt +
-                                1, attempts, (body or "")[:1000]
-                            )
-
-                            # Specific fallback: some servers disallow submitting
-                            # an `image_url` field and require raw image bytes.
-                            if (response.status == 400 and
-                                    ("uploads are disabled" in lower_body or "image url uploads are disabled" in lower_body)):
-                                # If we've not yet tried switching to raw bytes,
-                                # attempt to download and attach the image data
-                                # and retry the request.
-                                if not tried_force_upload:
-                                    tried_force_upload = True
-                                    logger.info(
-                                        "Server rejected image_url for %s; attempting to download image and resend as bytes",
-                                        image_url,
-                                    )
-                                    # Attempt to download image bytes for forced upload
-                                    downloaded = await self._download_and_resize_image(image_url, always_upload=True)
-                                    if downloaded:
-                                        resized_bytes = downloaded
-                                        # Allow a short backoff before retrying
-                                        await asyncio.sleep(min(5, getattr(config, 'retry_delay', 2.0)))
-                                        # continue to next attempt (do not raise)
-                                        continue
-                                    else:
-                                        # Could not download; treat as terminal
-                                        last_exception = Exception(
-                                            f"Server requires direct image upload but failed to download image for {image_url}")
-                                        break
-
-                            # For 5xx or 429 errors, allow retry according to backoff
-                            if response.status >= 500 or response.status == 429:
-                                last_exception = Exception(
-                                    f"API request failed with status {response.status}")
-                                await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
-                                continue
-
-                            # Other client errors are treated as non-retriable
-                            raise Exception(
-                                f"API request failed with status {response.status}")
-
-                        response_text = body
-                        last_exception = None
-
-                        # Record success with response time for adaptive rate limiting
-                        response_time = time.time() - request_start_time
-                        await self.resilient_client.record_success(response_time)
-                        logger.debug(
-                            "API request successful for %s (%.2fs)",
-                            image_url, response_time
-                        )
-                        break
-
-                except asyncio.TimeoutError as e:
-                    last_exception = e
-                    response_time = time.time() - request_start_time
-
-                    # Record timeout failure for circuit breaker and rate limiter
-                    await self.resilient_client.record_failure(
-                        is_timeout=True,
-                        response_time_seconds=response_time
-                    )
-
-                    logger.warning(
-                        "Timeout calling API for %s (attempt %d/%d). configured_timeout=%s, elapsed=%.1fs",
-                        image_url,
-                        attempt + 1,
-                        attempts,
-                        getattr(config, 'request_timeout', None),
-                        response_time,
-                    )
-                    await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
-
-                except aiohttp.ClientError as e:
-                    last_exception = e
-                    response_time = time.time() - request_start_time
-
-                    # Record network failure
-                    await self.resilient_client.record_failure(
-                        is_timeout=False,
-                        response_time_seconds=response_time
-                    )
-
-                    logger.warning(
-                        "Network error calling API for %s (attempt %d/%d): %s",
-                        image_url,
-                        attempt + 1,
-                        attempts,
-                        repr(e),
-                    )
-                    await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
-
-                except Exception as e:
-                    last_exception = e
-                    response_time = time.time() - request_start_time
-
-                    # Record general failure
-                    await self.resilient_client.record_failure(
-                        is_timeout=False,
-                        response_time_seconds=response_time
-                    )
-
-                    logger.error(
-                        "Unexpected error calling API for %s (attempt %d/%d): %s",
-                        image_url,
-                        attempt + 1,
-                        attempts,
-                        repr(e),
-                    )
-                    # Do not retry on unexpected logic errors
-                    break
-
-            if response_text is None:
-                # Log resilience stats on failure
-                stats = self.resilient_client.get_stats()
-                logger.error(
-                    "Exhausted retries calling API for %s after %d attempts. "
-                    "last_exception=%s, circuit=%s, rate=%.1f/s, queue=%d/%d",
-                    image_url,
-                    attempts,
-                    repr(last_exception),
-                    stats['circuit_breaker']['state'],
-                    stats['rate_limiter']['current_rate'],
-                    stats['backpressure_queue']['in_flight'],
-                    stats['backpressure_queue']['max_concurrent'],
-                )
-                if isinstance(last_exception, asyncio.TimeoutError):
-                    raise Exception(
-                        f"API request timed out after {attempts} attempts (timeout={getattr(config, 'request_timeout', None)}s) for {image_url}"
-                    ) from last_exception
-                elif last_exception:
-                    raise last_exception
-                else:
-                    raise Exception(
-                        "Failed to retrieve API response (unknown reason)")
-
-            # Parse response - handle both direct JSON and markdown-wrapped JSON
+        for attempt in range(attempts):
             try:
-                # Try direct JSON parsing first
-                # Note: some servers may return text-wrapped JSON, so fall back to parsing
-                api_response = json.loads(response_text)
-            except Exception:
-                # If not JSON, try to parse as text and extract JSON from markdown
-                api_response = self._parse_api_response(response_text)
+                response_text = await self._call_openrouter(image_url, prompt)
 
-            # Defensive checks: ensure we received a dict-like response
-            if api_response is None:
-                # API returned literal `null` or empty body
-                raise Exception(
-                    f"API returned empty/null response for {image_url}: {response_text[:500]}")
+                response_time = time.time() - request_start_time
+                await self.resilient_client.record_success(response_time)
+                logger.debug(
+                    "OpenRouter request successful for %s (%.2fs)", image_url, response_time)
+                last_exception = None
+                break
 
-            if not isinstance(api_response, dict):
-                # Unexpected response shape (e.g., list or string). Include snippet for debugging.
+            except asyncio.TimeoutError as e:
+                last_exception = e
+                response_time = time.time() - request_start_time
+                await self.resilient_client.record_failure(is_timeout=True, response_time_seconds=response_time)
+                logger.warning(
+                    "Timeout calling OpenRouter for %s (attempt %d/%d). timeout=%s, elapsed=%.1fs",
+                    image_url,
+                    attempt + 1,
+                    attempts,
+                    getattr(config, 'request_timeout', None),
+                    response_time,
+                )
+                await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+                continue
+
+            except Exception as e:
+                last_exception = e
+                response_time = time.time() - request_start_time
+                await self.resilient_client.record_failure(is_timeout=False, response_time_seconds=response_time)
+                logger.error(
+                    "OpenRouter error for %s (attempt %d/%d): %s",
+                    image_url,
+                    attempt + 1,
+                    attempts,
+                    repr(e),
+                )
+                if getattr(e, 'retriable', False) and attempt < attempts - 1:
+                    await asyncio.sleep(min(30, getattr(config, 'retry_delay', 2.0) * (2 ** attempt)))
+                    continue
+                break
+
+        if response_text is None:
+            stats = self.resilient_client.get_stats()
+            logger.error(
+                "Exhausted retries calling OpenRouter for %s after %d attempts. last_exception=%s, circuit=%s, rate=%.1f/s, queue=%d/%d",
+                image_url,
+                attempts,
+                repr(last_exception),
+                stats['circuit_breaker']['state'],
+                stats['rate_limiter']['current_rate'],
+                stats['backpressure_queue']['in_flight'],
+                stats['backpressure_queue']['max_concurrent'],
+            )
+            if last_exception:
+                raise last_exception
+            raise Exception("Failed to retrieve OpenRouter response")
+
+        try:
+            analysis_data = json.loads(response_text)
+        except Exception:
+            analysis_data = self._parse_api_response(response_text)
+            if analysis_data is None:
                 raise Exception(
-                    f"Unexpected API response type {type(api_response).__name__} for {image_url}. Response snippet: {str(response_text)[:500]}"
+                    f"Failed to parse OpenRouter response: {response_text}")
+
+        return self._normalize_api_response(analysis_data)
+
+    async def _call_openrouter(self, image_url: str, prompt: str) -> str:
+        """Call OpenRouter via the OpenAI client (runs in thread to avoid blocking)"""
+
+        # Decide whether to use the preset or explicit model
+        model_to_use = getattr(config, 'openrouter_preset', None) or getattr(
+            config, 'openrouter_model', 'qwen/qwen-2.5-vl-7b-instruct')
+
+        if self.openai_client:
+            payload = f"{prompt}\nImage URL: {image_url}"
+
+            extra_headers = {
+                "HTTP-Referer": config.openrouter_referer,
+                "X-Title": config.openrouter_site_title,
+            }
+
+            # For presets and multimodal models, send a structured content list (text + image)
+            messages_payload = [
+                {
+                    'role': 'user',
+                    'content': [
+                        {'type': 'text', 'text': prompt},
+                        {'type': 'image_url', 'image_url': {'url': image_url}}
+                    ]
+                }
+            ]
+
+            def sync_call():
+                return self.openai_client.chat.completions.create(
+                    model=model_to_use,
+                    messages=messages_payload,
+                    temperature=0.0,
+                    extra_headers=extra_headers,
                 )
 
-            # Check for API error responses (status 200 but with error details)
-            if 'detail' in api_response and isinstance(api_response['detail'], str):
-                if 'invalid' in api_response['detail'].lower() or 'error' in api_response['detail'].lower():
+            completion = await asyncio.to_thread(sync_call)
+        else:
+            # Fall back to HTTP POST to OpenRouter if SDK isn't installed but an API key exists
+            if not getattr(config, 'openrouter_api_key', None):
+                raise Exception(
+                    "OpenRouter client unavailable: neither SDK nor OPENROUTER_API_KEY configured")
+
+            # Use multimodal 'image_url' messages for image processing
+            body = {
+                'model': model_to_use,
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': [
+                            {'type': 'text', 'text': prompt},
+                            {'type': 'image_url', 'image_url': {'url': image_url}}
+                        ]
+                    }
+                ],
+                'temperature': 0.0,
+            }
+
+            headers = {
+                'Authorization': f"Bearer {config.openrouter_api_key}",
+                'Content-Type': 'application/json',
+            }
+
+            # Include optional extra headers for ranking/site metadata
+            extra_headers = {
+                'HTTP-Referer': config.openrouter_referer,
+                'X-Title': config.openrouter_site_title,
+            }
+            # Some OpenRouter deployments accept these in a top-level 'extra_headers' key
+            body['extra_headers'] = extra_headers
+
+            async with self.session.post('https://openrouter.ai/api/v1/chat/completions', json=body, headers=headers, timeout=self._client_timeout) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
                     raise Exception(
-                        f"API returned error: {api_response['detail']}")
+                        f"OpenRouter HTTP request failed with status {resp.status}: {text[:1000]}")
+                completion = await resp.json()
 
-            # Extract the analysis from the response
-            if 'response' in api_response:
-                # Handle nested response structure
-                analysis_text = api_response['response']
-                if isinstance(analysis_text, str):
-                    # Remove markdown code blocks if present
-                    if analysis_text.startswith('```json') and analysis_text.endswith('```'):
-                        analysis_text = analysis_text[7:-3].strip()
-                    elif analysis_text.startswith('```') and analysis_text.endswith('```'):
-                        analysis_text = analysis_text[3:-3].strip()
+        def _get_field(obj, key):
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
 
-                    try:
-                        analysis_data = json.loads(analysis_text)
-                    except Exception:
-                        # Attempt to recover using the more flexible extractor
-                        analysis_data = self._parse_api_response(analysis_text)
-                        if analysis_data is None:
-                            raise Exception(
-                                f"Failed to parse API response JSON: {analysis_text}")
-                else:
-                    analysis_data = analysis_text
-            else:
-                # Direct response structure
-                analysis_data = api_response
+        # Try multiple strategies to extract a textual completion from the response.
+        # 1) choices[].message.content (string or list)
+        if isinstance(completion, dict):
+            choices = completion.get('choices')
+            if choices:
+                first = choices[0]
+                # message.content may be a string
+                msg = _get_field(first, 'message') or _get_field(
+                    first, 'message')
+                content = None
+                if isinstance(msg, dict):
+                    content = msg.get('content')
+                # If message.content is a string, return it
+                if isinstance(content, str) and content.strip():
+                    return content
 
-            # Validate and normalize the response
-            analysis = self._normalize_api_response(analysis_data)
+                # If message.content is a list of blocks (multimodal), join any 'text' fields
+                if isinstance(content, list):
+                    parts = []
+                    for block in content:
+                        if isinstance(block, dict):
+                            t = block.get('text') or block.get('content')
+                            if isinstance(t, str) and t.strip():
+                                parts.append(t.strip())
+                        elif isinstance(block, str) and block.strip():
+                            parts.append(block.strip())
+                    if parts:
+                        return '\n'.join(parts)
 
-            return analysis
+                # Some responses put raw text at choices[0].text
+                text_field = first.get('text')
+                if isinstance(text_field, str) and text_field.strip():
+                    return text_field
 
-        except Exception as e:
-            # Log full traceback and exception type for easier debugging
-            logger.exception("Error calling API for %s: %s",
-                             image_url, repr(e))
-            raise
+            # 2) data -> content -> list -> text
+            data = completion.get('data')
+            if isinstance(data, list) and data:
+                first = data[0]
+                content = first.get('content')
+                if isinstance(content, str) and content.strip():
+                    return content
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get('text'):
+                            return block.get('text')
+
+            # 3) top-level fields
+            for k in ('response', 'text', 'content', 'result'):
+                v = completion.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v
+                if isinstance(v, list) and v and isinstance(v[0], str) and v[0].strip():
+                    return v[0]
+
+            # 4) as a last resort, if it's dict-like, dump it so parsing later can still happen
+            try:
+                return json.dumps(completion)
+            except Exception:
+                pass
+
+        # If it's not a dict, try attribute lookups / fallback
+        try:
+            # choices attribute
+            choices = getattr(completion, 'choices', None)
+            if choices:
+                first = choices[0]
+                msg = getattr(first, 'message', None)
+                content = getattr(msg, 'content', None) if msg else None
+                if isinstance(content, str) and content.strip():
+                    return content
+                text_field = getattr(first, 'text', None)
+                if isinstance(text_field, str) and text_field.strip():
+                    return text_field
+
+            data = getattr(completion, 'data', None)
+            if isinstance(data, list) and data and isinstance(data[0], dict):
+                content = data[0].get('content')
+                if isinstance(content, str) and content.strip():
+                    return content
+                if isinstance(content, list) and content and isinstance(content[0], dict) and content[0].get('text'):
+                    return content[0].get('text')
+
+        except Exception:
+            pass
+
+        raise Exception('Unable to extract OpenRouter completion text')
 
     def _parse_api_response(self, response_text: str) -> Dict[str, Any]:
         """Parse API response that might be wrapped in markdown"""

@@ -2,16 +2,16 @@
 
 This guide will help you get the enterprise image processing system up and running quickly.
 
-## 🚀 Prerequisites
+## Prerequisites
 
 Before starting, ensure you have:
 
 - **Python 3.8+** installed
 - **PostgreSQL 12+** installed and running
 - **Redis 6.0+** installed and running
-- **External AI API Endpoint** accessible (for image analysis)
+- **OpenRouter API Key** for image analysis
 
-## 📦 Quick Installation
+## Quick Installation
 
 ### 1. Clone and Setup
 
@@ -35,26 +35,19 @@ nano .env
 
 **Required settings in `.env`:**
 ```env
+# OpenRouter API (Required)
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_PRESET=@preset/identify-storefront
+
 # PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=imageprocessing
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/imageprocessing
 
 # Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
-# External AI API Configuration
-API_ENDPOINT_URL=http://your-api-endpoint:8000/generate
-REQUEST_TIMEOUT=60
-```
+REDIS_URL=redis://localhost:6379/0
 
 # Processing settings
-CHUNK_SIZE=1000
-MAX_CONCURRENT_BATCHES=5
-MAX_WORKERS=4
+CHUNK_SIZE=500
+MAX_CONCURRENT_WORKERS=16
 ```
 
 ### 3. Initialize Database
@@ -72,7 +65,7 @@ python setup.py --health-check
 ### 5. Start Application
 
 ```bash
-python run_server.py
+python server/run_server.py
 ```
 
 The application will be available at: `http://localhost:5001`
@@ -278,34 +271,24 @@ curl http://localhost:5001/api/v1/system/stats | jq '.data.queue_stats'
 
 ## ⚡ Performance Optimization
 
-### For Large Scale Processing (15M+ URLs) - Updated Configuration
+### For Large Scale Processing
 
-1. **Increase Workers (Updated):**
+1. **Increase Workers:**
 ```env
-MAX_CONCURRENT_WORKERS=100        # Increased from 8
-MAX_CONCURRENT_BATCHES=20         # Increased from 10
-MAX_CONCURRENT_REQUESTS=25        # Higher per-worker concurrency
+MAX_CONCURRENT_WORKERS=32
+MAX_CONCURRENT_BATCHES=10
 ```
 
-2. **Add More API Keys:**
+2. **Optimize Database:**
 ```env
-GEMINI_API_KEYS=key1,key2,key3,key4,key5,key6  # Optional: kept for backward compatibility
-REQUESTS_PER_MINUTE=200           # Adjusted for multiple keys
+DATABASE_POOL_SIZE=50
+DATABASE_MAX_OVERFLOW=100
 ```
 
-3. **Optimize Database (Enhanced):**
+3. **Memory Management:**
 ```env
-# In .env - Enhanced database configuration:
-DATABASE_POOL_SIZE=200            # Increased from 50
-DATABASE_MAX_OVERFLOW=300         # Increased from 100
-DATABASE_POOL_TIMEOUT=30          # Connection timeout
-DATABASE_POOL_RECYCLE=1800        # Connection lifecycle
-```
-
-4. **Scale Redis (Enhanced):**
-```env
-REDIS_MAX_CONNECTIONS=1000        # Increased from 200
-REDIS_SOCKET_TIMEOUT=10           # Optimized timeout
+MEMORY_LIMIT_GB=8
+GC_FREQUENCY=1000
 ```
 
 ### For Better Throughput (Updated)

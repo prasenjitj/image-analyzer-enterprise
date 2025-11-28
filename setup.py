@@ -299,29 +299,27 @@ REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
 
-# Gemini / External API Configuration
-# Provide Gemini API keys (comma-separated) or point to an external API endpoint
-GEMINI_API_KEYS=your_gemini_api_key_here
-API_ENDPOINT_URL=http://your-external-api-endpoint:8000/generate
+# OpenRouter API Configuration
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_PRESET=@preset/identify-storefront
 
 # Processing Configuration
-CHUNK_SIZE=1000
+CHUNK_SIZE=500
 MAX_CONCURRENT_BATCHES=5
-MAX_WORKERS=4
-REQUEST_TIMEOUT=30
-RETRY_ATTEMPTS=3
+MAX_CONCURRENT_WORKERS=16
+REQUEST_TIMEOUT=90
+RETRY_ATTEMPTS=2
 
 # Application Configuration
 SECRET_KEY=your-secret-key-here
 MAX_UPLOAD_SIZE=104857600  # 100MB
 DEBUG=false
-LOG_FILE=./logs/enterprise_app.log
 
 # Directories
 UPLOAD_DIR=./uploads
 LOG_DIR=./logs
 EXPORT_DIR=./exports
-CHECKPOINT_DIR=./checkpoints
+TEMP_DIR=./temp
 """
 
         config_path = self.project_root / ".env.example"
@@ -352,41 +350,16 @@ CHECKPOINT_DIR=./checkpoints
 
         return True
 
-    def test_ocr_engines(self):
-        """Test OCR engine availability"""
-        logger.info("Testing OCR engines...")
+    def test_openrouter_config(self):
+        """Test OpenRouter configuration"""
+        logger.info("Testing OpenRouter configuration...")
 
-        engines_available = []
-
-        # Test EasyOCR
-        try:
-            import easyocr
-            logger.info("✓ EasyOCR available")
-            engines_available.append("EasyOCR")
-        except ImportError:
-            logger.warning("⚠ EasyOCR not installed")
-
-        # Test Tesseract
-        try:
-            import pytesseract
-            logger.info("✓ Tesseract available")
-            engines_available.append("Tesseract")
-        except ImportError:
-            logger.warning("⚠ Tesseract not installed")
-
-        # Test OpenCV
-        try:
-            import cv2
-            logger.info("✓ OpenCV available")
-            engines_available.append("OpenCV")
-        except ImportError:
-            logger.warning("⚠ OpenCV not installed")
-
-        if engines_available:
-            logger.info(f"✓ OCR engines ready: {', '.join(engines_available)}")
+        api_key = os.getenv('OPENROUTER_API_KEY', '')
+        if api_key and len(api_key) > 10:
+            logger.info("✓ OpenRouter API key configured")
             return True
         else:
-            logger.error("❌ No OCR engines available")
+            logger.warning("⚠ OPENROUTER_API_KEY not configured or too short")
             return False
 
     def run_health_check(self):
@@ -399,7 +372,7 @@ CHECKPOINT_DIR=./checkpoints
             ("Prerequisites", self.check_prerequisites),
             ("PostgreSQL", self.check_postgresql_connection),
             ("Redis", self.check_redis_connection),
-            ("OCR Engines", self.test_ocr_engines),
+            ("OpenRouter Config", self.test_openrouter_config),
         ]
 
         results = {}

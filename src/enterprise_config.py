@@ -1,6 +1,6 @@
 """
-Enhanced configuration for enterprise-grade batch processing
-Supports PostgreSQL, Redis, and scalable architecture
+Configuration for enterprise-grade batch processing.
+Supports PostgreSQL, Redis, OpenRouter API, and scalable architecture.
 """
 import os
 from typing import List, Optional
@@ -12,18 +12,18 @@ load_dotenv()
 
 
 class EnterpriseConfig(BaseSettings):
-    """Enterprise configuration for batch processing - Optimized for throughput"""
+    """Enterprise configuration for batch processing"""
 
-    # API Configuration - supports multiple endpoints for load balancing
-    api_endpoint_url: str = Field(
-        "http://localhost:8000/generate", env="API_ENDPOINT_URL")
-    # Comma-separated list of API endpoints for multi-GPU load balancing
-    api_endpoint_urls: Optional[str] = Field(
-        None, env="API_ENDPOINT_URLS")
-    # Kept for backward compatibility
-    google_api_key: str = Field("", env="GOOGLE_API_KEY")
-    google_api_keys: Optional[str] = Field(
-        None, env="GOOGLE_API_KEYS")  # Kept for backward compatibility
+    # OpenRouter API Configuration
+    openrouter_api_key: str = Field("", env="OPENROUTER_API_KEY")
+    openrouter_model: str = Field(
+        "qwen/qwen-2.5-vl-7b-instruct", env="OPENROUTER_MODEL")
+    openrouter_preset: str = Field(
+        "@preset/identify-storefront", env="OPENROUTER_PRESET")
+    openrouter_referer: str = Field(
+        "https://image-analyzer-enterprise.com", env="OPENROUTER_REFERER")
+    openrouter_site_title: str = Field(
+        "Enterprise Image Analyzer", env="OPENROUTER_SITE_TITLE")
 
     # Database Configuration (PostgreSQL)
     database_url: str = Field(
@@ -142,26 +142,6 @@ class EnterpriseConfig(BaseSettings):
         return [s.strip().lower() for s in raw.split(',') if s.strip()]
 
     @property
-    def api_keys_list(self) -> List[str]:
-        """Get list of API keys (for backward compatibility, returns empty list if using external API)"""
-        if self.google_api_keys:
-            keys = [key.strip() for key in self.google_api_keys.split(',')]
-            return [k for k in keys if k]
-        elif self.google_api_key:
-            return [self.google_api_key.strip()]
-        return []  # External API endpoint doesn't need API keys
-
-    @property
-    def api_endpoints_list(self) -> List[str]:
-        """Get list of API endpoints for load balancing across multiple GPUs"""
-        if self.api_endpoint_urls:
-            endpoints = [url.strip()
-                         for url in self.api_endpoint_urls.split(',')]
-            return [e for e in endpoints if e]
-        # Fall back to single endpoint
-        return [self.api_endpoint_url]
-
-    @property
     def is_postgresql(self) -> bool:
         """Check if using PostgreSQL"""
         return self.database_url.startswith('postgresql')
@@ -225,10 +205,10 @@ class EnterpriseConfig(BaseSettings):
         if not self.is_redis_available:
             warnings.append("Redis required for background job processing")
 
-        # API key validation
-        if len(self.api_keys_list) == 1:
+        # OpenRouter API validation
+        if not self.openrouter_api_key:
             warnings.append(
-                "Single API key may limit processing speed for large batches")
+                "OPENROUTER_API_KEY not set - image processing will fail")
 
         # Performance validation
         if self.max_concurrent_workers > 100:

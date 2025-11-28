@@ -34,6 +34,9 @@ aiohttp>=3.8.0
 aiofiles>=23.0.0
 requests>=2.31.0
 
+# OpenAI client for OpenRouter
+openai>=1.0.0
+
 # Image processing
 Pillow>=10.0.0
 
