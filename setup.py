@@ -362,6 +362,24 @@ TEMP_DIR=./temp
             logger.warning("⚠ OPENROUTER_API_KEY not configured or too short")
             return False
 
+    def test_api_backend_config(self):
+        """Test API backend configuration"""
+        logger.info("Testing API backend configuration...")
+
+        api_backend = os.getenv('API_BACKEND', 'openrouter')
+        logger.info(f"API backend: {api_backend}")
+
+        if api_backend == 'legacy':
+            endpoint = os.getenv('LEGACY_API_ENDPOINT', '')
+            if endpoint:
+                logger.info(f"✓ Legacy API endpoint configured: {endpoint}")
+                return True
+            else:
+                logger.warning("⚠ LEGACY_API_ENDPOINT not configured")
+                return False
+        else:
+            return self.test_openrouter_config()
+
     def run_health_check(self):
         """Run comprehensive health check"""
         logger.info("=" * 60)
@@ -372,7 +390,7 @@ TEMP_DIR=./temp
             ("Prerequisites", self.check_prerequisites),
             ("PostgreSQL", self.check_postgresql_connection),
             ("Redis", self.check_redis_connection),
-            ("OpenRouter Config", self.test_openrouter_config),
+            ("API Backend Config", self.test_api_backend_config),
         ]
 
         results = {}

@@ -43,7 +43,6 @@ class ChunkProcessor:
         self.worker_id = worker_id
         # Use max_concurrent_requests (16) for parallel URL processing within each chunk
         self.processor = ImageProcessor(
-            api_keys=config.api_keys_list,
             max_workers=config.max_concurrent_requests
         )
         self.cache = get_cache(config.cache_db_path)

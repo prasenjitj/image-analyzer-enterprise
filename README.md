@@ -1,11 +1,13 @@
 # Enterprise Image Analyzer
 
-A scalable, production-ready image analysis system for processing millions of images using OpenRouter AI. Designed for storefront identification and business information extraction.
+A scalable, production-ready image analysis system for processing millions of images. Supports both OpenRouter AI and custom legacy API backends for maximum flexibility.
 
 ## Features
 
 - **Massive Scale Processing**: Handle millions of image URLs efficiently
+- **Flexible API Backends**: Switch between OpenRouter AI and custom/self-hosted APIs
 - **OpenRouter Integration**: Uses Qwen 2.5 VL or custom presets for image analysis
+- **Legacy API Support**: Connect to self-hosted vLLM or other inference servers
 - **Intelligent Batching**: Configurable chunks with progress tracking
 - **PostgreSQL + Redis**: Persistent storage with high-performance caching
 - **Background Workers**: Parallel processing with automatic retry logic
@@ -21,7 +23,7 @@ A scalable, production-ready image analysis system for processing millions of im
 - Python 3.8+
 - PostgreSQL 12+
 - Redis 6+
-- OpenRouter API key
+- OpenRouter API key OR legacy API endpoint
 
 ### Installation
 
@@ -48,9 +50,16 @@ python server/run_server.py
 ### Environment Variables
 
 ```bash
-# Required - OpenRouter API
+# API Backend Selection (openrouter or legacy)
+API_BACKEND=openrouter
+
+# Option A: OpenRouter API (default)
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_PRESET=@preset/identify-storefront
+
+# Option B: Legacy/Custom API
+LEGACY_API_ENDPOINT=http://your-server:8000/generate
+LEGACY_API_KEY=optional_key
 
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/image_analyzer

@@ -14,7 +14,10 @@ load_dotenv()
 class EnterpriseConfig(BaseSettings):
     """Enterprise configuration for batch processing"""
 
-    # OpenRouter API Configuration
+    # API Backend Selection: "openrouter" or "legacy"
+    api_backend: str = Field("openrouter", env="API_BACKEND")
+
+    # OpenRouter API Configuration (used when api_backend="openrouter")
     openrouter_api_key: str = Field("", env="OPENROUTER_API_KEY")
     openrouter_model: str = Field(
         "qwen/qwen-2.5-vl-7b-instruct", env="OPENROUTER_MODEL")
@@ -24,6 +27,26 @@ class EnterpriseConfig(BaseSettings):
         "https://image-analyzer-enterprise.com", env="OPENROUTER_REFERER")
     openrouter_site_title: str = Field(
         "Enterprise Image Analyzer", env="OPENROUTER_SITE_TITLE")
+
+    # Legacy API Configuration (used when api_backend="legacy")
+    # Single endpoint (backward compatible)
+    legacy_api_endpoint: str = Field(
+        "http://localhost:8000/generate", env="LEGACY_API_ENDPOINT")
+    # Multiple endpoints for load balancing (comma-separated)
+    legacy_api_endpoints: str = Field(
+        "", env="LEGACY_API_ENDPOINTS")
+    legacy_api_key: str = Field("", env="LEGACY_API_KEY")
+
+    @property
+    def legacy_api_endpoints_list(self) -> List[str]:
+        """Return list of legacy API endpoints for load balancing"""
+        # First check LEGACY_API_ENDPOINTS (comma-separated list)
+        if self.legacy_api_endpoints:
+            return [e.strip() for e in self.legacy_api_endpoints.split(',') if e.strip()]
+        # Fall back to single endpoint
+        if self.legacy_api_endpoint:
+            return [self.legacy_api_endpoint]
+        return []
 
     # Database Configuration (PostgreSQL)
     database_url: str = Field(
@@ -205,10 +228,20 @@ class EnterpriseConfig(BaseSettings):
         if not self.is_redis_available:
             warnings.append("Redis required for background job processing")
 
-        # OpenRouter API validation
-        if not self.openrouter_api_key:
+        # API Backend validation
+        if self.api_backend not in ("openrouter", "legacy"):
+            warnings.append(
+                f"Invalid API_BACKEND '{self.api_backend}' - must be 'openrouter' or 'legacy'")
+
+        # OpenRouter API validation (only when using OpenRouter backend)
+        if self.api_backend == "openrouter" and not self.openrouter_api_key:
             warnings.append(
                 "OPENROUTER_API_KEY not set - image processing will fail")
+
+        # Legacy API validation (only when using legacy backend)
+        if self.api_backend == "legacy" and not self.legacy_api_endpoint:
+            warnings.append(
+                "LEGACY_API_ENDPOINT not set - image processing will fail")
 
         # Performance validation
         if self.max_concurrent_workers > 100:

@@ -5,7 +5,8 @@ import pytest
 
 # Insert a minimal fake src.enterprise_config so tests can import src.processor
 cfg = types.SimpleNamespace(
-    api_keys_list=[],
+    api_backend='openrouter',
+    openrouter_api_key='test_key',
     max_concurrent_workers=2,
     request_timeout=10,
     skip_image_download=True,

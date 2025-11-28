@@ -428,7 +428,6 @@ class OptimizedChunkProcessor:
     def __init__(self, worker_id: str):
         self.worker_id = worker_id
         self.processor = ImageProcessor(
-            api_keys=config.api_keys_list,
             max_workers=config.max_concurrent_requests,
             image_max_size=config.image_max_size,
             session_pool_size=100,  # Connection pool

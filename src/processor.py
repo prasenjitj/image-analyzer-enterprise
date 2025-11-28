@@ -317,6 +317,9 @@ class ImageProcessor:
         self.session: Optional[aiohttp.ClientSession] = None
         self._client_timeout: Optional[aiohttp.ClientTimeout] = None
 
+        # Legacy API endpoint index for round-robin load balancing
+        self._legacy_endpoint_index = 0
+
         # OpenAI client for OpenRouter (initialize lazily only when available)
         self.openai_client = None
         if _OPENAI_AVAILABLE and getattr(config, 'openrouter_api_key', None):
@@ -330,6 +333,11 @@ class ImageProcessor:
                 logger.warning(
                     "Failed to initialize OpenRouter client: %s", repr(e))
                 self.openai_client = None
+
+        # Log legacy API endpoints if using legacy backend
+        if getattr(config, 'api_backend', 'openrouter') == 'legacy':
+            endpoints = config.legacy_api_endpoints_list
+            logger.info(f"Legacy API endpoints configured: {endpoints}")
 
         # Image prefetcher for pipelining downloads with inference
         self._prefetcher: Optional[ImagePrefetcher] = None
@@ -664,12 +672,20 @@ class ImageProcessor:
             await self.resilient_client.release()
 
     async def _make_api_request(self, image_url: str, request_start_time: float) -> Dict[str, Any]:
-        """Make the OpenRouter API call and normalize the JSON response"""
+        """Make the API call based on configured backend and normalize the JSON response"""
 
-        # Allow either SDK client or HTTP API key fallback. If neither present, fail early.
-        if not self.openai_client and not getattr(config, 'openrouter_api_key', None):
-            raise Exception(
-                "OpenRouter client not configured. Set OPENROUTER_API_KEY and/or install the openai SDK.")
+        api_backend = getattr(config, 'api_backend', 'openrouter')
+
+        if api_backend == "legacy":
+            # Use legacy API endpoint
+            if not getattr(config, 'legacy_api_endpoint', None):
+                raise Exception(
+                    "Legacy API not configured. Set LEGACY_API_ENDPOINT.")
+        else:
+            # Use OpenRouter (default)
+            if not self.openai_client and not getattr(config, 'openrouter_api_key', None):
+                raise Exception(
+                    "OpenRouter client not configured. Set OPENROUTER_API_KEY and/or install the openai SDK.")
 
         prompt = """
             You are an image analysis model. Carefully examine the image and determine whether it shows a physical store or business establishment. 
@@ -716,14 +732,20 @@ class ImageProcessor:
         last_exception = None
         response_text = None
 
+        # Select API backend
+        backend_name = "Legacy API" if api_backend == "legacy" else "OpenRouter"
+
         for attempt in range(attempts):
             try:
-                response_text = await self._call_openrouter(image_url, prompt)
+                if api_backend == "legacy":
+                    response_text = await self._call_legacy_api(image_url, prompt)
+                else:
+                    response_text = await self._call_openrouter(image_url, prompt)
 
                 response_time = time.time() - request_start_time
                 await self.resilient_client.record_success(response_time)
                 logger.debug(
-                    "OpenRouter request successful for %s (%.2fs)", image_url, response_time)
+                    "%s request successful for %s (%.2fs)", backend_name, image_url, response_time)
                 last_exception = None
                 break
 
@@ -732,7 +754,8 @@ class ImageProcessor:
                 response_time = time.time() - request_start_time
                 await self.resilient_client.record_failure(is_timeout=True, response_time_seconds=response_time)
                 logger.warning(
-                    "Timeout calling OpenRouter for %s (attempt %d/%d). timeout=%s, elapsed=%.1fs",
+                    "Timeout calling %s for %s (attempt %d/%d). timeout=%s, elapsed=%.1fs",
+                    backend_name,
                     image_url,
                     attempt + 1,
                     attempts,
@@ -747,7 +770,8 @@ class ImageProcessor:
                 response_time = time.time() - request_start_time
                 await self.resilient_client.record_failure(is_timeout=False, response_time_seconds=response_time)
                 logger.error(
-                    "OpenRouter error for %s (attempt %d/%d): %s",
+                    "%s error for %s (attempt %d/%d): %s",
+                    backend_name,
                     image_url,
                     attempt + 1,
                     attempts,
@@ -761,7 +785,8 @@ class ImageProcessor:
         if response_text is None:
             stats = self.resilient_client.get_stats()
             logger.error(
-                "Exhausted retries calling OpenRouter for %s after %d attempts. last_exception=%s, circuit=%s, rate=%.1f/s, queue=%d/%d",
+                "Exhausted retries calling %s for %s after %d attempts. last_exception=%s, circuit=%s, rate=%.1f/s, queue=%d/%d",
+                backend_name,
                 image_url,
                 attempts,
                 repr(last_exception),
@@ -772,7 +797,7 @@ class ImageProcessor:
             )
             if last_exception:
                 raise last_exception
-            raise Exception("Failed to retrieve OpenRouter response")
+            raise Exception(f"Failed to retrieve {backend_name} response")
 
         try:
             analysis_data = json.loads(response_text)
@@ -780,9 +805,78 @@ class ImageProcessor:
             analysis_data = self._parse_api_response(response_text)
             if analysis_data is None:
                 raise Exception(
-                    f"Failed to parse OpenRouter response: {response_text}")
+                    f"Failed to parse {backend_name} response: {response_text}")
 
         return self._normalize_api_response(analysis_data)
+
+    def _get_next_legacy_endpoint(self) -> str:
+        """Get next legacy API endpoint using round-robin load balancing"""
+        endpoints = config.legacy_api_endpoints_list
+        if not endpoints:
+            raise Exception(
+                "No legacy API endpoints configured. Set LEGACY_API_ENDPOINTS or LEGACY_API_ENDPOINT.")
+
+        endpoint = endpoints[self._legacy_endpoint_index % len(endpoints)]
+        self._legacy_endpoint_index += 1
+        return endpoint
+
+    async def _call_legacy_api(self, image_url: str, prompt: str) -> str:
+        """Call legacy API endpoint using form data (text prompt + image URL) with load balancing"""
+
+        # Get next endpoint using round-robin
+        api_url = self._get_next_legacy_endpoint()
+        logger.debug(f"Using legacy endpoint: {api_url}")
+
+        # Prepare form data
+        data = aiohttp.FormData()
+        data.add_field('text', prompt)
+        data.add_field('image_url', image_url)
+
+        # Add API key header if configured
+        headers = {}
+        if getattr(config, 'legacy_api_key', None):
+            headers['Authorization'] = f"Bearer {config.legacy_api_key}"
+
+        async with self.session.post(api_url, data=data, headers=headers, timeout=self._client_timeout) as response:
+            if response.status != 200:
+                text = await response.text()
+                raise Exception(
+                    f"Legacy API request failed with status {response.status}: {text[:1000]}")
+
+            response_text = await response.text()
+
+            # Try to parse as JSON first
+            try:
+                api_response = json.loads(response_text)
+            except json.JSONDecodeError:
+                # If not JSON, try to extract JSON from markdown
+                api_response = self._parse_api_response(response_text)
+                if api_response is None:
+                    raise Exception(
+                        f"Failed to parse legacy API response: {response_text[:500]}")
+
+            # Check for API error responses (status 200 but with error details)
+            if 'detail' in api_response and isinstance(api_response['detail'], str):
+                if 'invalid' in api_response['detail'].lower() or 'error' in api_response['detail'].lower():
+                    raise Exception(
+                        f"Legacy API returned error: {api_response['detail']}")
+
+            # Extract the analysis from the response
+            if 'response' in api_response:
+                # Handle nested response structure
+                analysis_text = api_response['response']
+                if isinstance(analysis_text, str):
+                    # Remove markdown code blocks if present
+                    if analysis_text.startswith('```json') and analysis_text.endswith('```'):
+                        analysis_text = analysis_text[7:-3].strip()
+                    elif analysis_text.startswith('```') and analysis_text.endswith('```'):
+                        analysis_text = analysis_text[3:-3].strip()
+                    return analysis_text
+                else:
+                    return json.dumps(analysis_text)
+            else:
+                # Direct response structure
+                return json.dumps(api_response)
 
     async def _call_openrouter(self, image_url: str, prompt: str) -> str:
         """Call OpenRouter via the OpenAI client (runs in thread to avoid blocking)"""

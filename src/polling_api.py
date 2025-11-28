@@ -813,7 +813,7 @@ def health_check():
                 'config': {
                     'chunk_size': config.chunk_size,
                     'max_concurrent_batches': config.max_concurrent_batches,
-                    'api_keys_count': len(config.api_keys_list)
+                    'api_backend': config.api_backend
                 }
             },
             'timestamp': datetime.now().isoformat()
