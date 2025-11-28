@@ -596,7 +596,12 @@ def create_enterprise_app():
 
     @app.route('/upload', methods=['POST'])
     def upload_csv():
-        """Handle CSV file upload and batch creation"""
+        """Handle CSV file upload and batch creation.
+
+        For CSV files with more than 5000 records (configurable via MAX_BATCH_SIZE),
+        the file will be automatically split into multiple batches of 5000 each.
+        Each batch is processed independently with its own chunks.
+        """
         try:
             if 'file' not in request.files:
                 return jsonify({'success': False, 'error': 'No file provided'}), 400
@@ -617,29 +622,100 @@ def create_enterprise_app():
             # Read CSV content
             csv_content = file.read().decode('utf-8')
 
-            # Create batch
-            batch_id, batch_info = batch_manager.create_batch_from_csv(
+            # Create batch(es) - will automatically split if > max_batch_size records
+            batch_ids, batch_summary = batch_manager.create_batches_from_csv(
                 csv_content=csv_content,
                 batch_name=batch_name,
-                filename=secure_filename(file.filename)
+                filename=secure_filename(file.filename),
+                auto_start=auto_start
             )
 
-            # Auto-start if requested
-            if auto_start:
-                try:
-                    batch_manager.start_batch_processing(batch_id)
-                    batch_info['auto_started'] = True
-                except Exception as e:
-                    logger.warning(
-                        f"Could not auto-start batch {batch_id}: {e}")
-                    batch_info['auto_start_error'] = str(e)
+            # Determine redirect URL and response format based on whether split occurred
+            if batch_summary.get('is_split', False):
+                # Multiple batches created - return summary with all batch IDs
+                # Also keep a backward-compatible `batch_id` and `batch_info` for
+                # older clients that expect a single-batch response (pointing to
+                # the first created child batch).
+                rep_batch = batch_summary.get('batches', [None])[0] or {}
 
+                return jsonify({
+                    'success': True,
+                    'is_split': True,
+                    'batch_ids': batch_ids,
+                    'parent_batch_id': batch_summary.get('parent_batch_id'),
+                    'num_batches': batch_summary.get('num_batches'),
+                    'total_listings': batch_summary.get('total_listings'),
+                    'max_batch_size': batch_summary.get('max_batch_size'),
+                    'batches': batch_summary.get('batches'),
+                    'estimated_total_time_hours': batch_summary.get('estimated_total_time_hours'),
+                    'message': f"CSV split into {batch_summary.get('num_batches')} batches of up to {batch_summary.get('max_batch_size')} records each",
+                    # Backwards-compatible single-batch fields (first child)
+                    'batch_id': rep_batch.get('batch_id'),
+                    'batch_info': rep_batch,
+                    # Redirect to dashboard to see all batches
+                    'redirect_url': url_for('dashboard')
+                })
+            else:
+                # Single batch - return original format for backward compatibility
+                batch_id = batch_ids[0]
+                batch_info = batch_summary.get('batches', [{}])[0]
+
+                return jsonify({
+                    'success': True,
+                    'is_split': False,
+                    'batch_id': batch_id,
+                    'batch_info': batch_info,
+                    'redirect_url': url_for('batch_detail', batch_id=batch_id)
+                })
+
+        except Exception as e:
+            logger.error(f"Error uploading CSV: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    # API endpoint to get related batches from same CSV split
+    @app.route('/api/v1/batches/related/<batch_id>')
+    def api_get_related_batches(batch_id: str):
+        """Get all batches that were created from the same CSV split"""
+        try:
+            related = batch_manager.get_related_batches(batch_id)
             return jsonify({
                 'success': True,
-                'batch_id': batch_id,
-                'batch_info': batch_info,
-                'redirect_url': url_for('batch_detail', batch_id=batch_id)
+                'data': related
             })
+        except ValueError as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 404
+        except Exception as e:
+            logger.error(f"Error getting related batches for {batch_id}: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
+    # API endpoint to get aggregated status of all batches from same CSV
+    @app.route('/api/v1/batches/parent/<parent_batch_id>/status')
+    def api_get_parent_batch_status(parent_batch_id: str):
+        """Get aggregated status of all batches created from the same CSV split"""
+        try:
+            status = batch_manager.get_parent_batch_status(parent_batch_id)
+            return jsonify({
+                'success': True,
+                'data': status
+            })
+        except ValueError as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 404
+        except Exception as e:
+            logger.error(
+                f"Error getting parent batch status for {parent_batch_id}: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
 
         except Exception as e:
             logger.error(f"Error uploading CSV: {e}")
@@ -847,9 +923,9 @@ def create_enterprise_app():
         """Get resilience patterns statistics (circuit breaker, rate limiter, backpressure queue)"""
         try:
             from .processor import image_processor
-            
+
             stats = image_processor.get_resilience_stats()
-            
+
             # Add human-readable status
             circuit_state = stats['circuit_breaker']['state']
             if circuit_state == 'open':
@@ -858,7 +934,7 @@ def create_enterprise_app():
                 status_message = "Circuit HALF-OPEN - Testing if API has recovered"
             else:
                 status_message = "Circuit CLOSED - Normal operation"
-            
+
             return jsonify({
                 'success': True,
                 'status_message': status_message,
@@ -871,14 +947,14 @@ def create_enterprise_app():
                 'success': False,
                 'error': str(e)
             }), 500
-    
+
     @app.route('/api/resilience/reset', methods=['POST'])
     def api_resilience_reset():
         """Reset resilience patterns (use after API recovers)"""
         try:
             from .processor import image_processor
             import asyncio
-            
+
             # Run the async reset
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -886,7 +962,7 @@ def create_enterprise_app():
                 loop.run_until_complete(image_processor.reset_resilience())
             finally:
                 loop.close()
-            
+
             return jsonify({
                 'success': True,
                 'message': 'Resilience patterns reset to initial state'
@@ -897,15 +973,15 @@ def create_enterprise_app():
                 'success': False,
                 'error': str(e)
             }), 500
-    
+
     def _get_resilience_recommendations(stats: dict) -> list:
         """Generate recommendations based on resilience stats"""
         recommendations = []
-        
+
         cb = stats.get('circuit_breaker', {})
         rl = stats.get('rate_limiter', {})
         bq = stats.get('backpressure_queue', {})
-        
+
         # Circuit breaker recommendations
         if cb.get('state') == 'open':
             recommendations.append(
@@ -915,7 +991,7 @@ def create_enterprise_app():
             recommendations.append(
                 f"High timeout count ({cb.get('total_timeouts')}). Consider increasing REQUEST_TIMEOUT or reducing load."
             )
-        
+
         # Rate limiter recommendations
         current_rate = rl.get('current_rate', 0)
         if current_rate < 2:
@@ -927,7 +1003,7 @@ def create_enterprise_app():
             recommendations.append(
                 f"Average response time is high ({avg_response/1000:.1f}s). API may be overloaded."
             )
-        
+
         # Backpressure queue recommendations
         if bq.get('is_under_pressure'):
             recommendations.append(
@@ -941,10 +1017,10 @@ def create_enterprise_app():
             recommendations.append(
                 f"{bq.get('total_timeouts')} requests timed out waiting in queue. Consider increasing QUEUE_TIMEOUT."
             )
-        
+
         if not recommendations:
             recommendations.append("System operating normally.")
-        
+
         return recommendations
 
     # Administrative endpoints for managing stuck jobs
@@ -1788,7 +1864,7 @@ def create_enterprise_app():
             batch_id_filter = request.args.get('batch_id', '')
             phone_number_filter = request.args.get('phone_number', '')
             sort_param = request.args.get('sort', 'created_at:desc')
-            
+
             # Dynamic column filter parameters
             filter_column = request.args.get('filter_column', '')
             filter_operator = request.args.get('filter_operator', 'contains')
@@ -1838,19 +1914,20 @@ def create_enterprise_app():
 
                 # Dynamic column filter
                 allowed_columns = [
-                    'serial_number', 'business_name', 'input_phone_number', 
+                    'serial_number', 'business_name', 'input_phone_number',
                     'store_name', 'business_contact', 'text_content',
-                    'image_description', 'url', 'store_front_match', 
+                    'image_description', 'url', 'store_front_match',
                     'phone_match', 'success'
                 ]
-                
+
                 if filter_column and filter_column in allowed_columns:
                     column = getattr(URLAnalysisResult, filter_column, None)
                     if column is not None:
                         # Handle boolean columns specially
                         if filter_column == 'success':
                             if filter_operator == 'equals':
-                                bool_val = filter_value.lower() in ['true', 'yes', '1', 'success']
+                                bool_val = filter_value.lower() in [
+                                    'true', 'yes', '1', 'success']
                                 filters.append(column == bool_val)
                             elif filter_operator == 'is_empty':
                                 filters.append(column.is_(None))
@@ -1859,19 +1936,26 @@ def create_enterprise_app():
                         else:
                             # Text column filtering
                             if filter_operator == 'contains':
-                                filters.append(column.ilike(f'%{filter_value}%'))
+                                filters.append(
+                                    column.ilike(f'%{filter_value}%'))
                             elif filter_operator == 'equals':
-                                filters.append(func.lower(column) == filter_value.lower())
+                                filters.append(func.lower(
+                                    column) == filter_value.lower())
                             elif filter_operator == 'starts_with':
-                                filters.append(column.ilike(f'{filter_value}%'))
+                                filters.append(
+                                    column.ilike(f'{filter_value}%'))
                             elif filter_operator == 'ends_with':
-                                filters.append(column.ilike(f'%{filter_value}'))
+                                filters.append(
+                                    column.ilike(f'%{filter_value}'))
                             elif filter_operator == 'not_contains':
-                                filters.append(~column.ilike(f'%{filter_value}%'))
+                                filters.append(
+                                    ~column.ilike(f'%{filter_value}%'))
                             elif filter_operator == 'is_empty':
-                                filters.append(or_(column.is_(None), column == ''))
+                                filters.append(
+                                    or_(column.is_(None), column == ''))
                             elif filter_operator == 'is_not_empty':
-                                filters.append(and_(column.isnot(None), column != ''))
+                                filters.append(
+                                    and_(column.isnot(None), column != ''))
 
                 # Apply all filters
                 if filters:
@@ -1942,7 +2026,7 @@ def create_enterprise_app():
             store_image_filter = request.args.get('store_image', 'all')
             batch_id_filter = request.args.get('batch_id', '')
             phone_number_filter = request.args.get('phone_number', '')
-            
+
             # Dynamic column filter parameters
             filter_column = request.args.get('filter_column', '')
             filter_operator = request.args.get('filter_operator', 'contains')
@@ -1982,19 +2066,20 @@ def create_enterprise_app():
 
                 # Dynamic column filter (same logic as list endpoint)
                 allowed_columns = [
-                    'serial_number', 'business_name', 'input_phone_number', 
+                    'serial_number', 'business_name', 'input_phone_number',
                     'store_name', 'business_contact', 'text_content',
-                    'image_description', 'url', 'store_front_match', 
+                    'image_description', 'url', 'store_front_match',
                     'phone_match', 'success'
                 ]
-                
+
                 if filter_column and filter_column in allowed_columns:
                     column = getattr(URLAnalysisResult, filter_column, None)
                     if column is not None:
                         # Handle boolean columns specially
                         if filter_column == 'success':
                             if filter_operator == 'equals':
-                                bool_val = filter_value.lower() in ['true', 'yes', '1', 'success']
+                                bool_val = filter_value.lower() in [
+                                    'true', 'yes', '1', 'success']
                                 filters.append(column == bool_val)
                             elif filter_operator == 'is_empty':
                                 filters.append(column.is_(None))
@@ -2003,19 +2088,26 @@ def create_enterprise_app():
                         else:
                             # Text column filtering
                             if filter_operator == 'contains':
-                                filters.append(column.ilike(f'%{filter_value}%'))
+                                filters.append(
+                                    column.ilike(f'%{filter_value}%'))
                             elif filter_operator == 'equals':
-                                filters.append(func.lower(column) == filter_value.lower())
+                                filters.append(func.lower(
+                                    column) == filter_value.lower())
                             elif filter_operator == 'starts_with':
-                                filters.append(column.ilike(f'{filter_value}%'))
+                                filters.append(
+                                    column.ilike(f'{filter_value}%'))
                             elif filter_operator == 'ends_with':
-                                filters.append(column.ilike(f'%{filter_value}'))
+                                filters.append(
+                                    column.ilike(f'%{filter_value}'))
                             elif filter_operator == 'not_contains':
-                                filters.append(~column.ilike(f'%{filter_value}%'))
+                                filters.append(
+                                    ~column.ilike(f'%{filter_value}%'))
                             elif filter_operator == 'is_empty':
-                                filters.append(or_(column.is_(None), column == ''))
+                                filters.append(
+                                    or_(column.is_(None), column == ''))
                             elif filter_operator == 'is_not_empty':
-                                filters.append(and_(column.isnot(None), column != ''))
+                                filters.append(
+                                    and_(column.isnot(None), column != ''))
 
                 # Apply all filters
                 if filters:

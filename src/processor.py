@@ -45,11 +45,14 @@ logger = logging.getLogger(__name__)
 # Number of images to prefetch ahead of current processing
 PREFETCH_QUEUE_SIZE = int(os.environ.get('PREFETCH_QUEUE_SIZE', '20'))
 # Max concurrent image downloads for prefetching
-PREFETCH_CONCURRENT_DOWNLOADS = int(os.environ.get('PREFETCH_CONCURRENT_DOWNLOADS', '10'))
+PREFETCH_CONCURRENT_DOWNLOADS = int(
+    os.environ.get('PREFETCH_CONCURRENT_DOWNLOADS', '10'))
 # Timeout for prefetch downloads (shorter than main timeout)
-PREFETCH_DOWNLOAD_TIMEOUT = float(os.environ.get('PREFETCH_DOWNLOAD_TIMEOUT', '10.0'))
+PREFETCH_DOWNLOAD_TIMEOUT = float(
+    os.environ.get('PREFETCH_DOWNLOAD_TIMEOUT', '10.0'))
 # Enable/disable prefetching
-ENABLE_PREFETCH = os.environ.get('ENABLE_PREFETCH', 'true').lower() in ('1', 'true', 'yes')
+ENABLE_PREFETCH = os.environ.get(
+    'ENABLE_PREFETCH', 'true').lower() in ('1', 'true', 'yes')
 # Thread pool for CPU-bound image resizing
 IMAGE_RESIZE_THREADS = int(os.environ.get('IMAGE_RESIZE_THREADS', '4'))
 
@@ -83,11 +86,11 @@ class PrefetchedImage:
 class ImagePrefetcher:
     """
     Asynchronous image prefetcher that downloads and resizes images ahead of time.
-    
+
     This allows the GPU to process images continuously while the next batch
     is being downloaded and preprocessed in parallel.
     """
-    
+
     def __init__(self, session: aiohttp.ClientSession, max_queue_size: int = PREFETCH_QUEUE_SIZE):
         self.session = session
         self.max_queue_size = max_queue_size
@@ -96,63 +99,67 @@ class ImagePrefetcher:
         self._cache_lock = asyncio.Lock()
         self._prefetch_tasks: List[asyncio.Task] = []
         self._shutdown = False
-        self._download_semaphore = asyncio.Semaphore(PREFETCH_CONCURRENT_DOWNLOADS)
-        self._resize_executor = ThreadPoolExecutor(max_workers=IMAGE_RESIZE_THREADS)
+        self._download_semaphore = asyncio.Semaphore(
+            PREFETCH_CONCURRENT_DOWNLOADS)
+        self._resize_executor = ThreadPoolExecutor(
+            max_workers=IMAGE_RESIZE_THREADS)
         self._stats = {
             'prefetch_hits': 0,
             'prefetch_misses': 0,
             'total_download_time': 0.0,
             'total_resize_time': 0.0,
         }
-        
+
     async def start(self):
         """Start the prefetch worker tasks"""
         if not ENABLE_PREFETCH:
             logger.info("Image prefetching disabled")
             return
-            
-        logger.info(f"Starting image prefetcher (queue_size={self.max_queue_size}, concurrent={PREFETCH_CONCURRENT_DOWNLOADS})")
+
+        logger.info(
+            f"Starting image prefetcher (queue_size={self.max_queue_size}, concurrent={PREFETCH_CONCURRENT_DOWNLOADS})")
         self._shutdown = False
-        
+
         # Start multiple prefetch workers
         for i in range(PREFETCH_CONCURRENT_DOWNLOADS):
             task = asyncio.create_task(self._prefetch_worker(i))
             self._prefetch_tasks.append(task)
-    
+
     async def stop(self):
         """Stop the prefetch workers and cleanup"""
         self._shutdown = True
-        
+
         # Cancel all prefetch tasks
         for task in self._prefetch_tasks:
             task.cancel()
-        
+
         if self._prefetch_tasks:
             await asyncio.gather(*self._prefetch_tasks, return_exceptions=True)
-        
+
         self._prefetch_tasks.clear()
         self._prefetch_cache.clear()
         self._resize_executor.shutdown(wait=False)
-        
-        logger.info(f"Prefetcher stopped. Stats: hits={self._stats['prefetch_hits']}, misses={self._stats['prefetch_misses']}")
-    
+
+        logger.info(
+            f"Prefetcher stopped. Stats: hits={self._stats['prefetch_hits']}, misses={self._stats['prefetch_misses']}")
+
     async def schedule_prefetch(self, urls: List[str]):
         """Schedule URLs for prefetching"""
         if not ENABLE_PREFETCH:
             return
-            
+
         for url in urls:
             # Skip if already in cache or queue is full
             async with self._cache_lock:
                 if url in self._prefetch_cache:
                     continue
-            
+
             try:
                 self._queue.put_nowait(url)
             except asyncio.QueueFull:
                 # Queue full, skip prefetching this URL
                 break
-    
+
     async def get_prefetched(self, url: str) -> Optional[PrefetchedImage]:
         """Get a prefetched image if available, otherwise return None"""
         async with self._cache_lock:
@@ -162,7 +169,7 @@ class ImagePrefetcher:
             else:
                 self._stats['prefetch_misses'] += 1
                 return None
-    
+
     async def _prefetch_worker(self, worker_id: int):
         """Worker that continuously prefetches images from the queue"""
         while not self._shutdown:
@@ -172,15 +179,15 @@ class ImagePrefetcher:
                     url = await asyncio.wait_for(self._queue.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     continue
-                
+
                 # Check if already cached
                 async with self._cache_lock:
                     if url in self._prefetch_cache:
                         continue
-                
+
                 # Download and resize the image
                 prefetched = await self._download_and_resize(url)
-                
+
                 # Store in cache
                 async with self._cache_lock:
                     # Limit cache size
@@ -189,62 +196,63 @@ class ImagePrefetcher:
                         if self._prefetch_cache:
                             oldest_key = next(iter(self._prefetch_cache))
                             del self._prefetch_cache[oldest_key]
-                    
+
                     self._prefetch_cache[url] = prefetched
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.debug(f"Prefetch worker {worker_id} error: {e}")
-    
+
     async def _download_and_resize(self, url: str) -> PrefetchedImage:
         """Download and resize an image"""
         result = PrefetchedImage(url=url)
-        
+
         download_start = time.perf_counter()
-        
+
         try:
             async with self._download_semaphore:
-                timeout = aiohttp.ClientTimeout(total=PREFETCH_DOWNLOAD_TIMEOUT)
+                timeout = aiohttp.ClientTimeout(
+                    total=PREFETCH_DOWNLOAD_TIMEOUT)
                 async with self.session.get(url, timeout=timeout) as response:
                     if response.status != 200:
                         result.error = f"HTTP {response.status}"
                         return result
-                    
+
                     # Check content length
                     content_length = response.headers.get('Content-Length')
                     if content_length and int(content_length) > 10 * 1024 * 1024:
                         result.error = "Image too large"
                         return result
-                    
+
                     img_bytes = await response.read()
-            
+
             result.download_time = time.perf_counter() - download_start
             self._stats['total_download_time'] += result.download_time
-            
+
             # Resize in thread pool to not block event loop
             resize_start = time.perf_counter()
             loop = asyncio.get_running_loop()
-            
+
             resized_bytes, original_size, final_size = await loop.run_in_executor(
                 self._resize_executor,
                 self._resize_image_sync,
                 img_bytes
             )
-            
+
             result.resize_time = time.perf_counter() - resize_start
             self._stats['total_resize_time'] += result.resize_time
             result.image_bytes = resized_bytes
             result.original_size = original_size
             result.final_size = final_size
-            
+
         except asyncio.TimeoutError:
             result.error = "Download timeout"
         except Exception as e:
             result.error = str(e)
-        
+
         return result
-    
+
     @staticmethod
     def _resize_image_sync(img_bytes: bytes) -> Tuple[bytes, Tuple[int, int], Tuple[int, int]]:
         """Synchronous image resize (runs in thread pool)"""
@@ -252,19 +260,19 @@ class ImagePrefetcher:
             with Image.open(BytesIO(img_bytes)) as img:
                 img = ImageOps.exif_transpose(img)
                 original_size = img.size
-                
+
                 max_size = 512
                 original_w, original_h = img.size
-                
+
                 if original_w > max_size or original_h > max_size:
                     # Calculate scale to fit within max_size
                     scale = min(max_size / original_w, max_size / original_h)
                     new_w = max(1, int(original_w * scale))
                     new_h = max(1, int(original_h * scale))
-                    
+
                     img = img.convert('RGB')
                     img = img.resize((new_w, new_h), Image.LANCZOS)
-                    
+
                     # Pad to 512x512 square
                     square = Image.new('RGB', (512, 512), (255, 255, 255))
                     paste_x = (512 - img.width) // 2
@@ -273,22 +281,22 @@ class ImagePrefetcher:
                     img = square
                 else:
                     img = img.convert('RGB')
-                
+
                 # Save to bytes
                 out_buf = BytesIO()
                 img.save(out_buf, format='JPEG', quality=85, optimize=True)
                 out_buf.seek(0)
-                
+
                 return out_buf.read(), original_size, img.size
-                
+
         except Exception as e:
             raise ValueError(f"Image processing failed: {e}")
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get prefetcher statistics"""
         total = self._stats['prefetch_hits'] + self._stats['prefetch_misses']
         hit_rate = self._stats['prefetch_hits'] / total if total > 0 else 0
-        
+
         return {
             'enabled': ENABLE_PREFETCH,
             'queue_size': self._queue.qsize() if hasattr(self._queue, 'qsize') else 0,
@@ -312,15 +320,17 @@ class ImageProcessor:
         self.session: Optional[aiohttp.ClientSession] = None
         # store the client timeout object for per-request reuse
         self._client_timeout: Optional[aiohttp.ClientTimeout] = None
-        
+
         # Multi-GPU load balancing: list of API endpoints
-        self.api_endpoints = getattr(config, 'api_endpoints_list', [config.api_endpoint_url])
+        self.api_endpoints = getattr(config, 'api_endpoints_list', [
+                                     config.api_endpoint_url])
         self._endpoint_index = 0
-        self._endpoint_lock = asyncio.Lock() if len(self.api_endpoints) > 1 else None
-        
+        # Always create lock for thread-safe endpoint selection
+        self._endpoint_lock = asyncio.Lock()
+
         # Image prefetcher for pipelining downloads with inference
         self._prefetcher: Optional[ImagePrefetcher] = None
-        
+
         # Initialize resilient API client with configuration tuned for the workload
         self._init_resilience()
 
@@ -333,7 +343,8 @@ class ImageProcessor:
         logger.info(
             f"Prefetching: {'enabled' if ENABLE_PREFETCH else 'disabled'} (queue={PREFETCH_QUEUE_SIZE}, concurrent={PREFETCH_CONCURRENT_DOWNLOADS})")
         if len(self.api_endpoints) > 1:
-            logger.info(f"Load balancing across endpoints: {self.api_endpoints}")
+            logger.info(
+                f"Load balancing across endpoints: {self.api_endpoints}")
 
     def _init_resilience(self):
         """Initialize resilience patterns - uses SHARED global client for cross-worker coordination"""
@@ -341,7 +352,7 @@ class ImageProcessor:
         # This prevents each worker from independently sending requests at max rate
         # which would overwhelm the GPU queues when running multiple workers
         self.resilient_client = get_resilient_client()
-        
+
         logger.info(
             f"Using shared resilient client (rate={self.resilient_client.rate_limiter._current_rate:.1f}/s, "
             f"max_concurrent={self.resilient_client.backpressure_queue.config.max_concurrent})"
@@ -355,7 +366,7 @@ class ImageProcessor:
             # keepalive_timeout helps reuse connections for subsequent requests
             pool_size = getattr(config, 'connection_pool_size', 100)
             enable_keepalive = getattr(config, 'enable_keepalive', True)
-            
+
             connector = aiohttp.TCPConnector(
                 limit=pool_size,
                 limit_per_host=pool_size,  # Allow many connections to the LLM API
@@ -367,19 +378,19 @@ class ImageProcessor:
                 # Use happy eyeballs for faster connection establishment
                 happy_eyeballs_delay=0.25,
             )
-            
+
             # Configure timeouts - use shorter timeouts since LLM model processes quickly
             request_timeout = getattr(config, 'request_timeout', 90)
             connect_timeout = min(10, max(1, int(request_timeout)))
             sock_read = max(30, int(request_timeout))
-            
+
             timeout = aiohttp.ClientTimeout(
                 total=request_timeout,
                 connect=connect_timeout,
                 sock_connect=connect_timeout,
                 sock_read=sock_read
             )
-            
+
             # store for per-request usage
             self._client_timeout = timeout
             self.session = aiohttp.ClientSession(
@@ -390,10 +401,11 @@ class ImageProcessor:
                 "Started aiohttp session (pool_size=%d, keepalive=%s, timeout=%ss)",
                 pool_size, enable_keepalive, request_timeout
             )
-            
+
             # Initialize prefetcher with the session
             if ENABLE_PREFETCH and not self._prefetcher:
-                self._prefetcher = ImagePrefetcher(self.session, max_queue_size=PREFETCH_QUEUE_SIZE)
+                self._prefetcher = ImagePrefetcher(
+                    self.session, max_queue_size=PREFETCH_QUEUE_SIZE)
                 # Start prefetcher in background
                 asyncio.create_task(self._prefetcher.start())
 
@@ -403,23 +415,23 @@ class ImageProcessor:
         if self._prefetcher:
             await self._prefetcher.stop()
             self._prefetcher = None
-            
+
         if self.session:
             await self.session.close()
             self.session = None
-    
+
     def get_resilience_stats(self) -> Dict[str, Any]:
         """Get current resilience pattern statistics"""
         stats = self.resilient_client.get_stats()
-        
+
         # Add prefetcher stats
         if self._prefetcher:
             stats['prefetcher'] = self._prefetcher.get_stats()
         else:
             stats['prefetcher'] = {'enabled': False}
-        
+
         return stats
-    
+
     async def reset_resilience(self):
         """Reset resilience patterns (useful after recovery)"""
         await self.resilient_client.reset()
@@ -434,63 +446,122 @@ class ImageProcessor:
         return api_key
 
     async def _get_next_endpoint(self) -> str:
-        """Get next API endpoint using queue-aware load balancing for multi-GPU"""
+        """Get next API endpoint using round-robin with queue-aware load balancing for multi-GPU.
+
+        Uses a hybrid approach:
+        1. Round-robin as the primary distribution (ensures both GPUs get traffic)
+        2. Queue-aware rebalancing when one GPU is significantly more loaded
+        """
         if len(self.api_endpoints) == 1:
             return self.api_endpoints[0]
-        
-        # Initialize queue cache if not exists
-        if not hasattr(self, '_queue_cache'):
+
+        # Initialize state if not exists
+        if not hasattr(self, '_endpoint_counter'):
+            self._endpoint_counter = 0
             self._queue_cache = {}  # endpoint -> (queue_size, timestamp)
-            self._queue_cache_ttl = 2.0  # Refresh queue info every 2 seconds
-        
+            # Refresh queue info every 0.5 seconds (faster)
+            self._queue_cache_ttl = 0.5
+            self._queue_diff_threshold = 10  # Only rebalance if queue difference > threshold
+            self._health_check_lock = asyncio.Lock()
+            self._last_health_log = 0
+
         current_time = time.time()
-        
-        # Check if we need to refresh any endpoint's queue info
-        endpoints_to_check = []
+
+        # Determine base endpoint using round-robin
+        async with self._endpoint_lock:
+            self._endpoint_counter += 1
+            round_robin_idx = self._endpoint_counter % len(self.api_endpoints)
+
+        base_endpoint = self.api_endpoints[round_robin_idx]
+
+        # Check if we should refresh queue info (non-blocking, best-effort)
+        should_refresh = False
         for endpoint in self.api_endpoints:
             cached = self._queue_cache.get(endpoint)
             if not cached or (current_time - cached[1]) > self._queue_cache_ttl:
-                endpoints_to_check.append(endpoint)
-        
-        # Update stale cache entries (async, quick timeouts)
-        if endpoints_to_check:
-            for endpoint in endpoints_to_check:
-                try:
-                    base_url = endpoint.replace('/generate', '')
-                    health_url = f"{base_url}/health"
-                    
-                    timeout = aiohttp.ClientTimeout(total=0.3)
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.get(health_url) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                queue_size = data.get('queue_size', 0)
-                                self._queue_cache[endpoint] = (queue_size, current_time)
-                except Exception:
-                    # Keep old cache value or use high default
-                    if endpoint not in self._queue_cache:
-                        self._queue_cache[endpoint] = (100, current_time)
-        
-        # Pick endpoint with shortest queue
-        best_endpoint = self.api_endpoints[0]
-        shortest_queue = float('inf')
-        
+                should_refresh = True
+                break
+
+        # Update queue cache in background (parallel health checks)
+        if should_refresh:
+            # Use a lock to prevent multiple concurrent health check refreshes
+            if self._health_check_lock.locked():
+                # Another task is already refreshing, use current cache
+                pass
+            else:
+                async with self._health_check_lock:
+                    await self._refresh_queue_cache(current_time)
+
+        # Check if we should rebalance based on queue sizes
+        queue_sizes = {}
         for endpoint in self.api_endpoints:
             cached = self._queue_cache.get(endpoint)
             if cached:
-                queue_size = cached[0]
-                if queue_size < shortest_queue:
-                    shortest_queue = queue_size
-                    best_endpoint = endpoint
-        
-        return best_endpoint
+                queue_sizes[endpoint] = cached[0]
+            else:
+                # No cache yet, assume equal load
+                queue_sizes[endpoint] = 0
+
+        # Only rebalance if there's a significant difference
+        if len(queue_sizes) == len(self.api_endpoints):
+            min_queue = min(queue_sizes.values())
+            max_queue = max(queue_sizes.values())
+
+            # If the difference is significant, prefer the less loaded endpoint
+            if max_queue - min_queue > self._queue_diff_threshold:
+                # Find the endpoint with the shortest queue
+                best_endpoint = min(queue_sizes, key=queue_sizes.get)
+
+                # Log rebalancing decision periodically
+                if current_time - self._last_health_log > 5.0:
+                    self._last_health_log = current_time
+                    logger.info(
+                        f"Load balancing: queues={queue_sizes}, selecting {best_endpoint.split(':')[-1].split('/')[0]}"
+                    )
+
+                return best_endpoint
+
+        return base_endpoint
+
+    async def _refresh_queue_cache(self, current_time: float):
+        """Refresh queue sizes from all endpoints in parallel"""
+        async def check_endpoint(endpoint: str) -> Tuple[str, Optional[int]]:
+            try:
+                base_url = endpoint.replace('/generate', '')
+                health_url = f"{base_url}/health"
+
+                timeout = aiohttp.ClientTimeout(
+                    total=1.0)  # Increased from 0.3s
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(health_url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            queue_size = data.get('queue_size', 0)
+                            return (endpoint, queue_size)
+            except Exception as e:
+                logger.debug(f"Health check failed for {endpoint}: {e}")
+            return (endpoint, None)
+
+        # Check all endpoints in parallel
+        tasks = [check_endpoint(ep) for ep in self.api_endpoints]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Update cache with results
+        for result in results:
+            if isinstance(result, tuple):
+                endpoint, queue_size = result
+                if queue_size is not None:
+                    self._queue_cache[endpoint] = (queue_size, current_time)
+                elif endpoint not in self._queue_cache:
+                    # If no cache and health check failed, assume moderate load
+                    self._queue_cache[endpoint] = (10, current_time)
 
     async def _download_and_resize_image(self, image_url: str, always_upload: bool = False) -> Optional[bytes]:
         """Download image and resize to max 512x512 for efficient API processing.
 
         Returns resized image bytes (JPEG) when resizing occurred or always_upload is True,
         or None when download failed or resizing was not necessary.
-        
+
         Uses prefetched images when available for better throughput.
         """
         # Check prefetch cache first for pre-downloaded/resized image
@@ -498,7 +569,8 @@ class ImageProcessor:
             prefetched = await self._prefetcher.get_prefetched(image_url)
             if prefetched:
                 if prefetched.error:
-                    logger.debug(f"Prefetch error for {image_url}: {prefetched.error}")
+                    logger.debug(
+                        f"Prefetch error for {image_url}: {prefetched.error}")
                     # Fall through to regular download
                 elif prefetched.image_bytes:
                     logger.debug(
@@ -506,7 +578,7 @@ class ImageProcessor:
                         f"(download={prefetched.download_time:.2f}s, resize={prefetched.resize_time:.2f}s)"
                     )
                     return prefetched.image_bytes
-        
+
         # Ensure we have a session
         if not self.session or getattr(self.session, 'closed', False):
             self.start_processing()
@@ -523,7 +595,8 @@ class ImageProcessor:
                 # Check content length before downloading (10MB max)
                 content_length = img_resp.headers.get('Content-Length')
                 if content_length and int(content_length) > 10 * 1024 * 1024:
-                    logger.warning("Image too large to download: %s (%s bytes)", image_url, content_length)
+                    logger.warning(
+                        "Image too large to download: %s (%s bytes)", image_url, content_length)
                     return None
 
                 img_bytes = await img_resp.read()
@@ -532,30 +605,33 @@ class ImageProcessor:
                     with Image.open(BytesIO(img_bytes)) as img:
                         img = ImageOps.exif_transpose(img)
                         original_w, original_h = img.size
-                        
+
                         # Target size - constrain to 512x512 max
                         max_size = 512
                         needs_resize = original_w > max_size or original_h > max_size
-                        
+
                         if needs_resize:
                             # Calculate scale to fit BOTH dimensions within max_size
-                            scale = min(max_size / original_w, max_size / original_h)
+                            scale = min(max_size / original_w,
+                                        max_size / original_h)
                             new_w = max(1, int(original_w * scale))
                             new_h = max(1, int(original_h * scale))
-                            
+
                             img = img.convert('RGB')
                             img = img.resize((new_w, new_h), Image.LANCZOS)
-                            
+
                             # Pad to 512x512 square with white background
-                            square = Image.new('RGB', (512, 512), (255, 255, 255))
+                            square = Image.new(
+                                'RGB', (512, 512), (255, 255, 255))
                             paste_x = (512 - img.width) // 2
                             paste_y = (512 - img.height) // 2
                             square.paste(img, (paste_x, paste_y))
-                            
+
                             out_buf = BytesIO()
-                            square.save(out_buf, format='JPEG', quality=85, optimize=True)
+                            square.save(out_buf, format='JPEG',
+                                        quality=85, optimize=True)
                             out_buf.seek(0)
-                            
+
                             logger.debug(
                                 'Resized image %s from %dx%d to %dx%d (padded to 512x512)',
                                 image_url, original_w, original_h, new_w, new_h
@@ -567,7 +643,8 @@ class ImageProcessor:
                         if always_upload:
                             img = img.convert('RGB')
                             out_buf = BytesIO()
-                            img.save(out_buf, format='JPEG', quality=85, optimize=True)
+                            img.save(out_buf, format='JPEG',
+                                     quality=85, optimize=True)
                             out_buf.seek(0)
                             return out_buf.read()
 
@@ -603,13 +680,14 @@ class ImageProcessor:
         # THROTTLED PROCESSING: Limit concurrent requests per worker
         # With 10 workers and 32 total slots, each worker should only have 3-4 concurrent
         # This prevents overwhelming the shared backpressure queue
-        MAX_CONCURRENT_PER_BATCH = int(os.getenv('MAX_CONCURRENT_PER_BATCH', '4'))
+        MAX_CONCURRENT_PER_BATCH = int(
+            os.getenv('MAX_CONCURRENT_PER_BATCH', '4'))
         batch_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PER_BATCH)
-        
+
         async def throttled_process(url: str) -> ProcessingResult:
             async with batch_semaphore:
                 return await self.process_single_url(url)
-        
+
         # Create tasks with per-batch throttling
         tasks = [asyncio.create_task(throttled_process(url)) for url in urls]
 
@@ -665,7 +743,7 @@ class ImageProcessor:
 
     async def _analyze_image(self, image_url: str) -> Dict[str, Any]:
         """Analyze image using API endpoint with multi-GPU load balancing and resilience patterns"""
-        
+
         # Check circuit breaker state first (fast fail)
         if self.resilient_client.circuit_breaker.is_open:
             # Circuit is open - check if we can proceed
@@ -674,12 +752,12 @@ class ImageProcessor:
                     f"Circuit breaker OPEN - API is overwhelmed. Rejecting request for {image_url}. "
                     f"Will retry after recovery period."
                 )
-        
+
         # Acquire permission through all resilience gates
         # Use 300s timeout - with 32 concurrent slots and ~4s per request, queue clears fast
         request_start_time = time.time()
         acquired = await self.resilient_client.acquire(timeout=300.0)
-        
+
         if not acquired:
             # Request was rejected by one of the resilience patterns
             stats = self.resilient_client.get_stats()
@@ -689,7 +767,7 @@ class ImageProcessor:
                 f"Queue: {stats['backpressure_queue']['in_flight']}/{stats['backpressure_queue']['max_concurrent']}, "
                 f"Rate: {stats['rate_limiter']['current_rate']:.1f}/s"
             )
-        
+
         try:
             # Proceed with the actual API call
             result = await self._make_api_request(image_url, request_start_time)
@@ -697,7 +775,7 @@ class ImageProcessor:
         finally:
             # Always release the backpressure slot
             await self.resilient_client.release()
-    
+
     async def _make_api_request(self, image_url: str, request_start_time: float) -> Dict[str, Any]:
         """Make the actual API request with retry logic"""
         # Get next API endpoint using round-robin for load balancing
@@ -877,7 +955,7 @@ class ImageProcessor:
 
                         response_text = body
                         last_exception = None
-                        
+
                         # Record success with response time for adaptive rate limiting
                         response_time = time.time() - request_start_time
                         await self.resilient_client.record_success(response_time)
@@ -890,13 +968,13 @@ class ImageProcessor:
                 except asyncio.TimeoutError as e:
                     last_exception = e
                     response_time = time.time() - request_start_time
-                    
+
                     # Record timeout failure for circuit breaker and rate limiter
                     await self.resilient_client.record_failure(
                         is_timeout=True,
                         response_time_seconds=response_time
                     )
-                    
+
                     logger.warning(
                         "Timeout calling API for %s (attempt %d/%d). configured_timeout=%s, elapsed=%.1fs",
                         image_url,
@@ -910,13 +988,13 @@ class ImageProcessor:
                 except aiohttp.ClientError as e:
                     last_exception = e
                     response_time = time.time() - request_start_time
-                    
+
                     # Record network failure
                     await self.resilient_client.record_failure(
                         is_timeout=False,
                         response_time_seconds=response_time
                     )
-                    
+
                     logger.warning(
                         "Network error calling API for %s (attempt %d/%d): %s",
                         image_url,
@@ -929,13 +1007,13 @@ class ImageProcessor:
                 except Exception as e:
                     last_exception = e
                     response_time = time.time() - request_start_time
-                    
+
                     # Record general failure
                     await self.resilient_client.record_failure(
                         is_timeout=False,
                         response_time_seconds=response_time
                     )
-                    
+
                     logger.error(
                         "Unexpected error calling API for %s (attempt %d/%d): %s",
                         image_url,

@@ -80,11 +80,66 @@ def get_batch_status(batch_id: str):
         })
 
     except ValueError as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 404
+        # If a batch with this ID doesn't exist it *might* be a parent_batch_id
+        # (created when a large CSV was split into multiple batches). In that
+        # situation, return an aggregated status for the parent to keep the
+        # response shape consistent for clients that expect a 'progress' object.
+        try:
+            # Attempt to fetch parent aggregated status via BatchManager
+            parent_status = batch_manager.get_parent_batch_status(batch_id)
+
+            # Map parent aggregated payload into the same shape as a
+            # per-batch get_batch_status result so UI code can read the same
+            # fields without defensive checks.
+            status_like = {
+                'batch_id': batch_id,
+                'status': parent_status.get('overall_status', 'unknown'),
+                'created_at': parent_status.get('started_at'),
+                'chunk_statistics': {},
+                'processing_rate': None,
+                'estimated_completion': parent_status.get('completed_at'),
+                'recent_errors': [],
+                'progress': {
+                    'progress_percentage': parent_status.get('progress_percentage', 0),
+                    'total_urls': parent_status.get('total_urls', 0),
+                    'processed_count': parent_status.get('processed_count', 0),
+                    'successful_count': parent_status.get('successful_count', 0),
+                    'failed_count': parent_status.get('failed_count', 0),
+                },
+                'batch_info': {
+                    'batch_name': f"Parent:{parent_status.get('parent_batch_id')}",
+                    'status': parent_status.get('overall_status', 'unknown'),
+                    'is_active': parent_status.get('overall_status') in ['processing', 'queued'],
+                    'batch_id': parent_status.get('parent_batch_id'),
+                    'total_urls': parent_status.get('total_urls', 0),
+                    'processed_count': parent_status.get('processed_count', 0),
+                    'created_at': parent_status.get('started_at')
+                },
+                'timing': {
+                    'started_at': parent_status.get('started_at'),
+                    'completed_at': parent_status.get('completed_at'),
+                    'elapsed_time_minutes': None,
+                    'remaining_time_minutes': None,
+                    'estimated_completion': parent_status.get('completed_at')
+                },
+                'performance': {
+                    'processing_rate_per_minute': None,
+                    'success_rate_percentage': round(parent_status.get('successful_count', 0) / max(parent_status.get('processed_count', 1), 1) * 100, 2) if parent_status.get('processed_count', 0) > 0 else 0
+                }
+            }
+
+            return jsonify({
+                'success': True,
+                'data': status_like,
+                'timestamp': datetime.now().isoformat()
+            })
+
+        except Exception:
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }), 404
 
     except Exception as e:
         logger.error(f"Error getting batch status for {batch_id}: {e}")
@@ -101,21 +156,65 @@ def get_batch_progress(batch_id: str):
     try:
         status = batch_manager.get_batch_status(batch_id)
 
-        # Extract only progress-related information
-        progress_data = {
-            'batch_id': batch_id,
-            'status': status['batch_info']['status'],
-            'progress_percentage': status['progress']['progress_percentage'],
-            'processed_count': status['progress']['processed_count'],
-            'total_urls': status['progress']['total_urls'],
-            'successful_count': status['progress']['successful_count'],
-            'failed_count': status['progress']['failed_count'],
-            'current_chunk': status['progress']['current_chunk'],
-            'total_chunks': status['progress']['total_chunks'],
-            'estimated_completion': status['timing']['estimated_completion'],
-            'processing_rate_per_minute': status['performance']['processing_rate_per_minute'],
-            'is_active': status['batch_info']['is_active']
-        }
+        # Some batch_id values may represent a parent batch (CSV-split parent) which
+        # returns an aggregated payload via get_parent_batch_status() instead of the
+        # regular per-batch get_batch_status() shape. Be defensive here and map
+        # a parent-style response into the same progress structure so callers don't
+        # experience `undefined` errors when reading fields like total_urls.
+
+        # If this is a normal per-batch payload, use the nested progress object.
+        if status and isinstance(status.get('progress'), dict):
+            progress = status.get('progress', {})
+            batch_info = status.get('batch_info', {})
+
+            progress_data = {
+                'batch_id': batch_id,
+                'status': batch_info.get('status', 'unknown'),
+                'progress_percentage': progress.get('progress_percentage', 0),
+                'processed_count': progress.get('processed_count', 0),
+                'total_urls': progress.get('total_urls', 0),
+                'successful_count': progress.get('successful_count', 0),
+                'failed_count': progress.get('failed_count', 0),
+                'current_chunk': progress.get('current_chunk'),
+                'total_chunks': progress.get('total_chunks'),
+                'estimated_completion': status.get('timing', {}).get('estimated_completion'),
+                'processing_rate_per_minute': status.get('performance', {}).get('processing_rate_per_minute'),
+                'is_active': batch_info.get('is_active', False)
+            }
+        else:
+            # Possibly a parent batch - try aggregating status across the group
+            try:
+                parent_status = batch_manager.get_parent_batch_status(batch_id)
+                progress_data = {
+                    'batch_id': batch_id,
+                    'status': parent_status.get('overall_status', 'unknown'),
+                    'progress_percentage': parent_status.get('progress_percentage', 0),
+                    'processed_count': parent_status.get('processed_count', 0),
+                    'total_urls': parent_status.get('total_urls', 0),
+                    'successful_count': parent_status.get('successful_count', 0),
+                    'failed_count': parent_status.get('failed_count', 0),
+                    'current_chunk': None,
+                    'total_chunks': parent_status.get('total_chunks'),
+                    'estimated_completion': parent_status.get('completed_at'),
+                    'processing_rate_per_minute': None,
+                    'is_active': parent_status.get('overall_status') in ['processing', 'queued']
+                }
+            except Exception:
+                # If nothing works, return a safe, default progress shape
+                progress_data = {
+                    'batch_id': batch_id,
+                    'status': 'unknown',
+                    'progress_percentage': 0,
+                    'processed_count': 0,
+                    'total_urls': 0,
+                    'successful_count': 0,
+                    'failed_count': 0,
+                    'current_chunk': None,
+                    'total_chunks': None,
+                    'estimated_completion': None,
+                    'processing_rate_per_minute': None,
+                    'is_active': False
+                }
 
         return jsonify({
             'success': True,
@@ -480,6 +579,72 @@ def clone_batch(batch_id: str):
         }), 500
 
 
+@polling_api.route('/batch/bulk/<action>', methods=['POST'])
+@polling_api.route('/batches/bulk', methods=['POST'])
+def bulk_batch_action(action: str = None):
+    """Perform bulk operations on batches. Supported actions: delete, force-start, reset, soft-delete"""
+    try:
+        data = request.get_json() or {}
+
+        # allow action in URL or payload
+        action = action or data.get('action')
+
+        if not action:
+            return jsonify({'success': False, 'error': 'action is required (delete|force-start|reset|soft-delete)'}), 400
+
+        batch_ids = data.get('batch_ids') or data.get('batchIds')
+        if not batch_ids or not isinstance(batch_ids, list):
+            return jsonify({'success': False, 'error': 'batch_ids (list) is required'}), 400
+
+        action = action.lower()
+        if action in ('delete', 'delete_batch', 'delete_batches'):
+            force = data.get('force', False)
+            result = batch_manager.delete_batches(batch_ids, force=force)
+
+        elif action in ('force-start', 'forcestart', 'force_start'):
+            skip_validation = data.get('skip_validation', False)
+            result = batch_manager.force_start_batches(
+                batch_ids, skip_validation=skip_validation)
+
+        elif action in ('reset', 'reset_batch', 'reset_batches'):
+            force = data.get('force', False)
+            result = batch_manager.reset_batches(batch_ids, force=force)
+
+        elif action in ('soft-delete', 'soft_delete'):
+            retention_days = data.get('retention_days', 30)
+            details = {}
+            success_all = True
+            deleted_count = 0
+            for bid in batch_ids:
+                try:
+                    r = batch_manager.soft_delete_batch(
+                        bid, retention_days=retention_days)
+                    details[bid] = {'success': True, 'data': r}
+                    deleted_count += 1
+                except Exception as e:
+                    details[bid] = {'success': False, 'error': str(e)}
+                    success_all = False
+
+            result = {
+                'success': success_all,
+                'details': details,
+                'total': len(batch_ids),
+                'soft_deleted': deleted_count
+            }
+
+        else:
+            return jsonify({'success': False, 'error': f'Unknown action: {action}'}), 400
+
+        return jsonify({'success': result.get('success', True), 'data': result})
+
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+    except Exception as e:
+        logger.error(f"Error performing bulk action {action}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @polling_api.route('/batches/<batch_id>/health', methods=['GET'])
 def get_batch_health(batch_id: str):
     """Get batch health score and diagnostics"""
@@ -737,15 +902,47 @@ def stream_batch_progress(batch_id: str):
                 while True:
                     try:
                         status = batch_manager.get_batch_status(batch_id)
-                        payload = {
-                            'batch_id': batch_id,
-                            'processed_count': status['progress']['processed_count'],
-                            'successful_count': status['progress']['successful_count'],
-                            'failed_count': status['progress']['failed_count'],
-                            'progress_percentage': status['progress']['progress_percentage'],
-                            'total_urls': status['progress']['total_urls'],
-                            'status': status['batch_info']['status']
-                        }
+
+                        # Map either per-batch or parent-aggregated structure into a
+                        # consistent payload so the SSE stream consumers always get the
+                        # same fields available.
+                        if status and isinstance(status.get('progress'), dict):
+                            p = status['progress']
+                            batch_status = status.get('batch_info', {})
+                            payload = {
+                                'batch_id': batch_id,
+                                'processed_count': p.get('processed_count', 0),
+                                'successful_count': p.get('successful_count', 0),
+                                'failed_count': p.get('failed_count', 0),
+                                'progress_percentage': p.get('progress_percentage', 0),
+                                'total_urls': p.get('total_urls', 0),
+                                'status': batch_status.get('status', 'unknown')
+                            }
+                        else:
+                            # Fallback to parent aggregated status
+                            try:
+                                parent_status = batch_manager.get_parent_batch_status(
+                                    batch_id)
+                                payload = {
+                                    'batch_id': batch_id,
+                                    'processed_count': parent_status.get('processed_count', 0),
+                                    'successful_count': parent_status.get('successful_count', 0),
+                                    'failed_count': parent_status.get('failed_count', 0),
+                                    'progress_percentage': parent_status.get('progress_percentage', 0),
+                                    'total_urls': parent_status.get('total_urls', 0),
+                                    'status': parent_status.get('overall_status', 'unknown')
+                                }
+                            except Exception:
+                                # Last resort: defaults
+                                payload = {
+                                    'batch_id': batch_id,
+                                    'processed_count': 0,
+                                    'successful_count': 0,
+                                    'failed_count': 0,
+                                    'progress_percentage': 0,
+                                    'total_urls': 0,
+                                    'status': 'unknown'
+                                }
                         s = json.dumps(payload)
                         if s != last_payload:
                             last_payload = s

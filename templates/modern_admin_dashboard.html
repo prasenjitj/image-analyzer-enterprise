@@ -510,6 +510,26 @@
                     </h3>
                 </div>
                 <div class="overflow-x-auto">
+                    <div id="bulkToolbar" class="px-6 py-4 border-b border-gray-200 bg-gray-50 hidden">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <span id="selectedCountAdmin" class="text-sm text-gray-700">0 selected</span>
+                                <button onclick="bulkActionAdmin('reset')"
+                                    class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200">Reset</button>
+                                <button onclick="bulkActionAdmin('force-start')"
+                                    class="px-3 py-1 bg-green-100 text-green-700 rounded-lg hover:bg-green-200">Force
+                                    Start</button>
+                                <button onclick="bulkActionAdmin('delete')"
+                                    class="px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200">Delete</button>
+                                <button onclick="bulkExportAdmin()"
+                                    class="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200">Export</button>
+                            </div>
+                            <div>
+                                <button onclick="clearSelectionAdmin()"
+                                    class="px-3 py-1 text-sm text-gray-600">Clear</button>
+                            </div>
+                        </div>
+                    </div>
                     <table class="w-full">
                         <thead class="bg-gray-50">
                             <tr>
@@ -695,7 +715,28 @@
                             <span class="ml-2 text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
                                 id="batchCount">0 batches</span>
                         </h3>
-                        <div class="flex space-x-2">
+                        <div class="flex items-center space-x-2">
+                            <!-- Top bulk action buttons (disabled when no selection) -->
+                            <div id="topBulkActions" class="hidden md:flex items-center space-x-2 mr-2">
+                                <button id="topBulkReset" onclick="bulkActionAdmin('reset')" disabled
+                                    class="px-3 py-2 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-redo mr-1"></i>
+                                    Reset
+                                </button>
+
+                                <button id="topBulkForce" onclick="bulkActionAdmin('force-start')" disabled
+                                    class="px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-play mr-1"></i>
+                                    Force Start
+                                </button>
+
+                                <button id="topBulkDelete" onclick="bulkActionAdmin('delete')" disabled
+                                    class="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-trash mr-1"></i>
+                                    Delete
+                                </button>
+                            </div>
+
                             <button onclick="refreshBatches()"
                                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                                 <i class="fas fa-sync-alt mr-1"></i>
@@ -710,10 +751,45 @@
                     </div>
                 </div>
 
+                <!-- Batch Management Bulk Toolbar (shown when batches are selected) -->
+                <div id="batchBulkToolbar" class="px-6 py-4 border-b border-gray-200 bg-blue-50 hidden">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span id="batchSelectedCount" class="text-sm font-medium text-blue-700">0 selected</span>
+                            <button onclick="bulkActionAdmin('reset')"
+                                class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition-colors">
+                                <i class="fas fa-redo mr-1"></i>Reset
+                            </button>
+                            <button onclick="bulkActionAdmin('force-start')"
+                                class="px-3 py-1 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors">
+                                <i class="fas fa-play mr-1"></i>Force Start
+                            </button>
+                            <button onclick="bulkActionAdmin('delete')"
+                                class="px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors">
+                                <i class="fas fa-trash mr-1"></i>Delete
+                            </button>
+                            <button onclick="bulkExportAdmin()"
+                                class="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors">
+                                <i class="fas fa-download mr-1"></i>Export
+                            </button>
+                        </div>
+                        <div>
+                            <button onclick="clearSelectionAdmin()"
+                                class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800">
+                                <i class="fas fa-times mr-1"></i>Clear Selection
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="overflow-x-auto">
                     <table class="w-full" id="batchTable">
                         <thead class="table-header">
                             <tr>
+                                <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
+                                    <input type="checkbox" id="selectAllAdmin" aria-label="Select all batches" />
+                                </th>
+
                                 <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                     Batch ID</th>
                                 <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
@@ -728,7 +804,7 @@
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200" id="batchTableBody">
                             <tr>
-                                <td colspan="5" class="px-6 py-8 text-center text-gray-500">
+                                <td colspan="6" class="px-6 py-8 text-center text-gray-500">
                                     <div class="loading-spinner mx-auto mb-2"></div>
                                     Loading batch data...
                                 </td>
@@ -958,6 +1034,10 @@
                         const row = document.createElement('tr');
                         row.className = 'hover:bg-gray-50 transition-colors';
                         row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <input type="checkbox" class="batch-checkbox" value="${batch.batch_id}" data-batch-status="${batch.status}" />
+                            </td>
+                            
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm font-medium text-gray-900">${batch.batch_name}</div>
                                 <div class="text-xs text-gray-500">${batch.batch_id.substring(0, 8)}...</div>
@@ -990,6 +1070,11 @@
                                     <i class="fas fa-redo text-xs mr-1"></i>
                                     Reset
                                 </button>
+                                <button onclick="forceStartBatch('${batch.batch_id}')"
+                                        class="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors">
+                                    <i class="fas fa-play text-xs mr-1"></i>
+                                    Force Start
+                                </button>
                                 <button onclick="deleteBatch('${batch.batch_id}')" 
                                         class="inline-flex items-center px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors">
                                     <i class="fas fa-trash text-xs mr-1"></i>
@@ -999,6 +1084,9 @@
                         `;
                         tbody.appendChild(row);
                     });
+
+                    // initialize admin selection handlers
+                    initAdminBatchSelection();
                 }
             } catch (error) {
                 console.error('Error refreshing batches:', error);
@@ -1116,9 +1204,145 @@
             }
         }
 
+        // Force start / restart batch
+        async function forceStartBatch(batchId) {
+            if (!confirm('Are you sure you want to force start this batch?')) return;
+
+            try {
+                const response = await fetch(`/admin/batch/${batchId}/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showNotification('Batch started successfully', 'success');
+                    refreshBatches();
+                } else {
+                    showNotification('Start failed: ' + (result.error || 'unknown'), 'error');
+                }
+            } catch (error) {
+                showNotification('Start failed: Network error', 'error');
+            }
+        }
+
         // Show batch actions
         function showBatchActions() {
             showNotification('Batch actions available via individual batch controls', 'info');
+        }
+
+        // Admin bulk selection - use event delegation for dynamic checkboxes
+        let adminSelectionInitialized = false;
+
+        function initAdminBatchSelection() {
+            const selectAll = document.getElementById('selectAllAdmin');
+            const batchTableBody = document.getElementById('batchTableBody');
+
+            if (!selectAll || !batchTableBody) return;
+
+            // Reset select-all state
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+
+            // Only attach event listeners once using event delegation
+            if (!adminSelectionInitialized) {
+                adminSelectionInitialized = true;
+
+                // Select-all checkbox handler
+                selectAll.addEventListener('change', () => {
+                    const checkboxes = document.querySelectorAll('#batchTableBody .batch-checkbox');
+                    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+                    updateAdminBulkUI();
+                });
+
+                // Event delegation for individual checkboxes
+                batchTableBody.addEventListener('change', (e) => {
+                    if (e.target.classList.contains('batch-checkbox')) {
+                        updateAdminBulkUI();
+                    }
+                });
+            }
+
+            // Update UI state after table refresh
+            updateAdminBulkUI();
+        }
+
+        function updateAdminBulkUI() {
+            const selectAll = document.getElementById('selectAllAdmin');
+            const checkboxes = document.querySelectorAll('#batchTableBody .batch-checkbox');
+            const checkedBoxes = document.querySelectorAll('#batchTableBody .batch-checkbox:checked');
+            const bulkToolbar = document.getElementById('batchBulkToolbar');
+            const selectedCount = document.getElementById('batchSelectedCount');
+            const topBulk = document.getElementById('topBulkActions');
+            const topReset = document.getElementById('topBulkReset');
+            const topForce = document.getElementById('topBulkForce');
+            const topDelete = document.getElementById('topBulkDelete');
+
+            if (checkedBoxes.length > 0) {
+                if (bulkToolbar) bulkToolbar.classList.remove('hidden');
+                if (selectedCount) selectedCount.textContent = `${checkedBoxes.length} selected`;
+                if (topBulk) topBulk.classList.remove('hidden');
+                if (topReset) topReset.disabled = false;
+                if (topForce) topForce.disabled = false;
+                if (topDelete) topDelete.disabled = false;
+            } else {
+                if (bulkToolbar) bulkToolbar.classList.add('hidden');
+                if (selectedCount) selectedCount.textContent = '0 selected';
+                if (topBulk) topBulk.classList.add('hidden');
+                if (topReset) topReset.disabled = true;
+                if (topForce) topForce.disabled = true;
+                if (topDelete) topDelete.disabled = true;
+            }
+
+            // Update select-all checkbox state
+            if (selectAll && checkboxes.length > 0) {
+                selectAll.indeterminate = checkedBoxes.length > 0 && checkedBoxes.length < checkboxes.length;
+                selectAll.checked = checkedBoxes.length === checkboxes.length && checkboxes.length > 0;
+            }
+        }
+
+        function clearSelectionAdmin() {
+            document.querySelectorAll('#batchTableBody .batch-checkbox:checked').forEach(cb => cb.checked = false);
+            const bulkToolbar = document.getElementById('batchBulkToolbar'); if (bulkToolbar) bulkToolbar.classList.add('hidden');
+            const topBulk = document.getElementById('topBulkActions'); if (topBulk) topBulk.classList.add('hidden');
+            const topReset = document.getElementById('topBulkReset'); if (topReset) topReset.disabled = true;
+            const topForce = document.getElementById('topBulkForce'); if (topForce) topForce.disabled = true;
+            const topDelete = document.getElementById('topBulkDelete'); if (topDelete) topDelete.disabled = true;
+            const selectedCount = document.getElementById('batchSelectedCount'); if (selectedCount) selectedCount.textContent = '0 selected';
+            const selectAll = document.getElementById('selectAllAdmin'); if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+        }
+
+        async function bulkActionAdmin(action) {
+            const checkedBoxes = document.querySelectorAll('#batchTableBody .batch-checkbox:checked');
+            const batchIds = Array.from(checkedBoxes).map(cb => cb.value);
+            if (batchIds.length === 0) { showNotification('No batches selected', 'error'); return; }
+            if (!confirm(`Are you sure you want to ${action} ${batchIds.length} selected batch${batchIds.length > 1 ? 'es' : ''}?`)) return;
+
+            try {
+                const resp = await fetch(`/api/v1/batch/bulk/${action}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ batch_ids: batchIds })
+                });
+
+                const result = await resp.json();
+                if (result.success) {
+                    showNotification(`${action} operation completed`, 'success');
+                    setTimeout(() => refreshBatches(), 1200);
+                } else {
+                    showNotification(result.error || 'Bulk action failed', 'error');
+                }
+            } catch (err) {
+                console.error('Bulk action error', err);
+                showNotification('Network error while performing bulk action', 'error');
+            }
+        }
+
+        function bulkExportAdmin() {
+            const checkedBoxes = document.querySelectorAll('#batchTableBody .batch-checkbox:checked');
+            const batchIds = Array.from(checkedBoxes).map(cb => cb.value);
+            if (batchIds.length === 0) { showNotification('No batches selected for export', 'error'); return; }
+            const exportUrl = `/export/bulk?batch_ids=${batchIds.join(',')}&format=csv`;
+            const link = document.createElement('a'); link.href = exportUrl; link.download = `bulk_export_${Date.now()}.csv`; document.body.appendChild(link); link.click(); link.remove();
         }
 
         // Notification system

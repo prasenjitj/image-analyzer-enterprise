@@ -41,11 +41,15 @@ class EnterpriseConfig(BaseSettings):
     redis_socket_timeout: int = Field(5, env="REDIS_SOCKET_TIMEOUT")
 
     # Batch Processing Configuration - OPTIMIZED FOR THROUGHPUT
-    chunk_size: int = Field(500, env="CHUNK_SIZE")  # Reduced for better parallelism
+    # Reduced for better parallelism
+    chunk_size: int = Field(500, env="CHUNK_SIZE")
     max_concurrent_batches: int = Field(5, env="MAX_CONCURRENT_BATCHES")
-    max_concurrent_chunks: int = Field(4, env="MAX_CONCURRENT_CHUNKS")  # Process multiple chunks in parallel
+    # Process multiple chunks in parallel
+    max_concurrent_chunks: int = Field(4, env="MAX_CONCURRENT_CHUNKS")
     chunk_processing_timeout: int = Field(
         1800, env="CHUNK_PROCESSING_TIMEOUT")  # 30 minutes
+    # Maximum URLs per batch - CSVs with more records will be split into multiple batches
+    max_batch_size: int = Field(5000, env="MAX_BATCH_SIZE")
 
     # Processing Configuration - OPTIMIZED TO MATCH LLM MODEL THROUGHPUT
     # The LLM model supports 16 concurrent inference workers with batch size 16
@@ -58,7 +62,8 @@ class EnterpriseConfig(BaseSettings):
 
     # Rate Limiting - Matched to LLM model's 1000 req/min capacity
     requests_per_minute: int = Field(
-        800, env="REQUESTS_PER_MINUTE")  # 80% of LLM model's 1000/min limit for safety margin
+        # 80% of LLM model's 1000/min limit for safety margin
+        800, env="REQUESTS_PER_MINUTE")
     rate_limit_buffer: float = Field(0.1, env="RATE_LIMIT_BUFFER")
 
     # Progress and Monitoring
@@ -150,7 +155,8 @@ class EnterpriseConfig(BaseSettings):
     def api_endpoints_list(self) -> List[str]:
         """Get list of API endpoints for load balancing across multiple GPUs"""
         if self.api_endpoint_urls:
-            endpoints = [url.strip() for url in self.api_endpoint_urls.split(',')]
+            endpoints = [url.strip()
+                         for url in self.api_endpoint_urls.split(',')]
             return [e for e in endpoints if e]
         # Fall back to single endpoint
         return [self.api_endpoint_url]

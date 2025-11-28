@@ -141,6 +141,279 @@ class BatchManager:
 
         return batch_id, batch_info
 
+    def create_batches_from_csv(self, csv_content: str, batch_name: str = None,
+                                filename: str = None, auto_start: bool = False) -> Tuple[List[str], Dict[str, Any]]:
+        """Create one or more batches from CSV content with automatic splitting for large files.
+
+        If the CSV has more than max_batch_size records (default 5000), it will be split
+        into multiple batches. Each batch will have its own chunks for processing.
+
+        Args:
+            csv_content: The CSV file content as a string
+            batch_name: Optional base name for the batch(es)
+            filename: Original filename for tracking
+            auto_start: Whether to automatically start processing after creation
+
+        Returns:
+            Tuple of (list of batch_ids, summary info dict)
+        """
+        # Parse CSV content to get listing data
+        listings = self._parse_csv_content(csv_content)
+
+        if not listings:
+            raise ValueError("No valid listing data found in CSV file")
+
+        # Get max batch size from config
+        max_batch_size = getattr(config, 'max_batch_size', 5000)
+        total_listings = len(listings)
+
+        # Generate base batch name if not provided
+        if not batch_name:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            batch_name = f"Listings_Batch_{timestamp}"
+
+        # Calculate how many batches we need
+        num_batches = (total_listings + max_batch_size - 1) // max_batch_size
+
+        logger.info(
+            f"CSV with {total_listings} listings will be split into {num_batches} batch(es) (max_batch_size={max_batch_size})")
+
+        # If only one batch needed, use the existing single batch creation
+        if num_batches == 1:
+            batch_id, batch_info = self.create_batch_from_csv(
+                csv_content, batch_name, filename)
+
+            # Auto-start if requested
+            if auto_start:
+                try:
+                    self.start_batch_processing(batch_id)
+                    batch_info['auto_started'] = True
+                except Exception as e:
+                    logger.warning(
+                        f"Could not auto-start batch {batch_id}: {e}")
+                    batch_info['auto_start_error'] = str(e)
+
+            return [batch_id], {
+                'total_listings': total_listings,
+                'num_batches': 1,
+                'max_batch_size': max_batch_size,
+                'batches': [batch_info],
+                'batch_ids': [batch_id],
+                'is_split': False
+            }
+
+        # Multiple batches needed - create parent batch ID for tracking
+        parent_batch_id = str(uuid.uuid4())
+        batch_ids = []
+        batches_info = []
+        file_size_bytes = len(csv_content.encode())
+
+        # Split listings into batches
+        for batch_num in range(num_batches):
+            start_idx = batch_num * max_batch_size
+            end_idx = min(start_idx + max_batch_size, total_listings)
+            batch_listings = listings[start_idx:end_idx]
+
+            # Create batch name with sequence number
+            current_batch_name = f"{batch_name}_Part{batch_num + 1}of{num_batches}"
+
+            # Calculate chunk parameters for this batch
+            batch_url_count = len(batch_listings)
+            total_chunks = (batch_url_count +
+                            self.chunk_size - 1) // self.chunk_size
+
+            # Create batch record with parent tracking
+            with db_manager.get_session() as session:
+                batch = ProcessingBatch(
+                    batch_name=current_batch_name,
+                    parent_batch_id=uuid.UUID(parent_batch_id),
+                    batch_sequence=batch_num + 1,
+                    total_split_batches=num_batches,
+                    total_urls=batch_url_count,
+                    chunk_size=self.chunk_size,
+                    total_chunks=total_chunks,
+                    original_filename=filename,
+                    file_size_bytes=file_size_bytes // num_batches,  # Approximate per-batch size
+                    processing_config={
+                        'chunk_size': self.chunk_size,
+                        'max_retries': config.retry_attempts,
+                        'timeout': config.request_timeout,
+                        'data_type': 'listings',
+                        'parent_batch_id': parent_batch_id,
+                        'batch_sequence': batch_num + 1,
+                        'total_split_batches': num_batches,
+                        'original_total_listings': total_listings
+                    }
+                )
+
+                session.add(batch)
+                session.commit()
+                batch_id = str(batch.batch_id)
+
+            # Create chunks for this batch
+            chunks_created = self._create_chunks(batch_id, batch_listings)
+
+            logger.info(
+                f"Created batch {batch_num + 1}/{num_batches}: {batch_id} with {batch_url_count} listings in {total_chunks} chunks")
+
+            batch_info = {
+                'batch_id': batch_id,
+                'batch_name': current_batch_name,
+                'batch_sequence': batch_num + 1,
+                'total_split_batches': num_batches,
+                'parent_batch_id': parent_batch_id,
+                'total_urls': batch_url_count,
+                'total_listings': batch_url_count,
+                'total_chunks': total_chunks,
+                'chunk_size': self.chunk_size,
+                'chunks_created': chunks_created,
+                'status': BatchStatus.PENDING.value,
+                'estimated_time_hours': self._estimate_processing_time(batch_url_count)
+            }
+
+            batch_ids.append(batch_id)
+            batches_info.append(batch_info)
+
+            # Auto-start if requested
+            if auto_start:
+                try:
+                    self.start_batch_processing(batch_id)
+                    batch_info['auto_started'] = True
+                except Exception as e:
+                    logger.warning(
+                        f"Could not auto-start batch {batch_id}: {e}")
+                    batch_info['auto_start_error'] = str(e)
+
+        # Return summary
+        summary = {
+            'total_listings': total_listings,
+            'num_batches': num_batches,
+            'max_batch_size': max_batch_size,
+            'parent_batch_id': parent_batch_id,
+            'batches': batches_info,
+            'batch_ids': batch_ids,
+            'is_split': True,
+            'estimated_total_time_hours': self._estimate_processing_time(total_listings)
+        }
+
+        logger.info(
+            f"Successfully created {num_batches} batches from CSV with {total_listings} listings (parent: {parent_batch_id})")
+
+        return batch_ids, summary
+
+    def get_related_batches(self, batch_id: str) -> List[Dict[str, Any]]:
+        """Get all batches related to the same parent batch (from same CSV split).
+
+        Args:
+            batch_id: Any batch ID that is part of a split batch group
+
+        Returns:
+            List of batch info dictionaries for all related batches
+        """
+        with db_manager.get_session() as session:
+            # First, find the batch to get its parent_batch_id
+            batch = self._get_batch_by_id(session, batch_id)
+            if not batch:
+                raise ValueError(f"Batch {batch_id} not found")
+
+            # If this batch has no parent, it's either a standalone batch or a parent itself
+            parent_id = batch.parent_batch_id
+            if not parent_id:
+                # Check if this batch IS a parent (has children)
+                # by looking for batches with this batch_id as their parent
+                children = session.query(ProcessingBatch).filter_by(
+                    parent_batch_id=batch.batch_id
+                ).all()
+
+                if not children:
+                    # Standalone batch, return just this one
+                    return [batch.to_dict()]
+                else:
+                    # This shouldn't happen with current design, but handle it
+                    return [batch.to_dict()] + [c.to_dict() for c in children]
+
+            # Get all batches with the same parent
+            related_batches = session.query(ProcessingBatch).filter_by(
+                parent_batch_id=parent_id
+            ).order_by(ProcessingBatch.batch_sequence).all()
+
+            return [b.to_dict() for b in related_batches]
+
+    def get_parent_batch_status(self, parent_batch_id: str) -> Dict[str, Any]:
+        """Get aggregated status of all batches from the same CSV split.
+
+        Args:
+            parent_batch_id: The parent batch ID that links all split batches
+
+        Returns:
+            Aggregated status dict with combined metrics
+        """
+        with db_manager.get_session() as session:
+            batches = session.query(ProcessingBatch).filter_by(
+                parent_batch_id=uuid.UUID(parent_batch_id)
+            ).order_by(ProcessingBatch.batch_sequence).all()
+
+            if not batches:
+                raise ValueError(
+                    f"No batches found for parent {parent_batch_id}")
+
+            # Aggregate statistics
+            total_urls = sum(b.total_urls for b in batches)
+            total_processed = sum(b.processed_count for b in batches)
+            total_successful = sum(b.successful_count for b in batches)
+            total_failed = sum(b.failed_count for b in batches)
+            total_chunks = sum(b.total_chunks for b in batches)
+
+            # Determine overall status
+            statuses = [b.status for b in batches]
+            if all(s == BatchStatus.COMPLETED for s in statuses):
+                overall_status = 'completed'
+            elif all(s == BatchStatus.PENDING for s in statuses):
+                overall_status = 'pending'
+            elif any(s in [BatchStatus.PROCESSING, BatchStatus.QUEUED] for s in statuses):
+                overall_status = 'processing'
+            elif any(s == BatchStatus.FAILED for s in statuses):
+                overall_status = 'partial_failure'
+            elif any(s == BatchStatus.PAUSED for s in statuses):
+                overall_status = 'paused'
+            elif any(s == BatchStatus.CANCELLED for s in statuses):
+                overall_status = 'cancelled'
+            else:
+                overall_status = 'mixed'
+
+            # Calculate completion times
+            started_at = min(
+                (b.started_at for b in batches if b.started_at), default=None)
+            completed_at = max((b.completed_at for b in batches if b.completed_at),
+                               default=None) if overall_status == 'completed' else None
+
+            return {
+                'parent_batch_id': parent_batch_id,
+                'total_batches': len(batches),
+                'overall_status': overall_status,
+                'total_urls': total_urls,
+                'processed_count': total_processed,
+                'successful_count': total_successful,
+                'failed_count': total_failed,
+                'total_chunks': total_chunks,
+                'progress_percentage': round((total_processed / total_urls) * 100, 2) if total_urls > 0 else 0,
+                'success_rate': round((total_successful / total_processed) * 100, 2) if total_processed > 0 else 0,
+                'started_at': started_at.isoformat() if started_at else None,
+                'completed_at': completed_at.isoformat() if completed_at else None,
+                'batches': [
+                    {
+                        'batch_id': str(b.batch_id),
+                        'batch_name': b.batch_name,
+                        'batch_sequence': b.batch_sequence,
+                        'status': b.status.value,
+                        'total_urls': b.total_urls,
+                        'processed_count': b.processed_count,
+                        'progress_percentage': b.progress_percentage
+                    }
+                    for b in batches
+                ]
+            }
+
     def start_batch_processing(self, batch_id: str) -> bool:
         """Start processing a batch"""
         with db_manager.get_session() as session:
@@ -495,6 +768,24 @@ class BatchManager:
             logger.info(f"Deleted batch {batch_id}")
             return True
 
+    def delete_batches(self, batch_ids: List[str], force: bool = False) -> Dict[str, Any]:
+        """Delete multiple batches and return per-id success/failure details"""
+        results: Dict[str, Any] = {}
+        for bid in batch_ids:
+            try:
+                deleted = self.delete_batch(bid, force=force)
+                results[bid] = {'success': bool(deleted)}
+            except Exception as e:
+                logger.error(f"Bulk delete failed for {bid}: {e}")
+                results[bid] = {'success': False, 'error': str(e)}
+
+        return {
+            'success': all(r.get('success') for r in results.values()),
+            'details': results,
+            'total': len(batch_ids),
+            'deleted': sum(1 for r in results.values() if r.get('success'))
+        }
+
     def force_start_batch(self, batch_id: str, skip_validation: bool = False) -> Dict[str, Any]:
         """Force start a batch regardless of current state"""
         with db_manager.get_session() as session:
@@ -545,6 +836,25 @@ class BatchManager:
                 'message': f'Successfully force started batch from {original_status.value}'
             }
 
+    def force_start_batches(self, batch_ids: List[str], skip_validation: bool = False) -> Dict[str, Any]:
+        """Force start a list of batches and return per-id results"""
+        results: Dict[str, Any] = {}
+        for bid in batch_ids:
+            try:
+                res = self.force_start_batch(
+                    bid, skip_validation=skip_validation)
+                results[bid] = {'success': True, 'data': res}
+            except Exception as e:
+                logger.error(f"Bulk force-start failed for {bid}: {e}")
+                results[bid] = {'success': False, 'error': str(e)}
+
+        return {
+            'success': all(r.get('success') for r in results.values()),
+            'details': results,
+            'total': len(batch_ids),
+            'started': sum(1 for r in results.values() if r.get('success'))
+        }
+
     def soft_delete_batch(self, batch_id: str, retention_days: int = 30) -> Dict[str, Any]:
         """Soft delete a batch (mark as deleted but preserve data)"""
         with db_manager.get_session() as session:
@@ -570,6 +880,24 @@ class BatchManager:
                 'deletion_date': datetime.now().isoformat(),
                 'message': f'Batch soft deleted with {retention_days} day retention'
             }
+
+    def reset_batches(self, batch_ids: List[str], force: bool = False) -> Dict[str, Any]:
+        """Reset multiple stuck batches back to PENDING status"""
+        results: Dict[str, Any] = {}
+        for bid in batch_ids:
+            try:
+                r = self.reset_stuck_batch(bid, force=force)
+                results[bid] = {'success': r.get('success', True), 'data': r}
+            except Exception as e:
+                logger.error(f"Bulk reset failed for {bid}: {e}")
+                results[bid] = {'success': False, 'error': str(e)}
+
+        return {
+            'success': all(r.get('success') for r in results.values()),
+            'details': results,
+            'total': len(batch_ids),
+            'reset': sum(1 for r in results.values() if r.get('success'))
+        }
 
     def clone_batch(self, batch_id: str, new_name: str, copy_results: bool = False) -> Dict[str, Any]:
         """Clone a batch with optional result copying"""
@@ -1012,7 +1340,7 @@ class BatchManager:
         # Use config's max_concurrent_chunks (default 4) for parallel chunk processing
         if max_chunks is None:
             max_chunks = getattr(config, 'max_concurrent_chunks', 4)
-        
+
         chunks = session.query(ProcessingChunk).filter_by(
             batch_id=batch_id,
             status=ChunkStatus.PENDING
@@ -1030,7 +1358,8 @@ class BatchManager:
                 f"Queued chunk {chunk.chunk_number} for batch {batch_id} (job: {job_id})")
 
         session.commit()
-        logger.info(f"Queued {len(chunks)} chunks for parallel processing (max_concurrent_chunks={max_chunks})")
+        logger.info(
+            f"Queued {len(chunks)} chunks for parallel processing (max_concurrent_chunks={max_chunks})")
 
     # Publish progress update to Redis pub/sub if available so UI can receive real-time updates
     try:

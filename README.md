@@ -52,6 +52,9 @@ REDIS_URL=redis://localhost:6379/0
 SECRET_KEY=your_secret_key_here
 MAX_UPLOAD_SIZE=104857600               # 100MB in bytes
 REQUEST_TIMEOUT=60                      # API request timeout in seconds
+# Optional: split large CSV uploads into multiple batches
+# Set MAX_BATCH_SIZE to change the split threshold (default: 5000)
+MAX_BATCH_SIZE=5000
 ```
 
 ### Setup
@@ -123,6 +126,8 @@ curl -X POST http://localhost:5001/api/v1/batches \
   -F "batch_name=My Batch"
 ```
 
+Note: CSV files larger than MAX_BATCH_SIZE (default 5000) will be split into multiple batches automatically. Each split batch is treated independently and has its own chunks, processing lifecycle and batch_id. All batches created from the same CSV share a parent_batch_id for tracking.
+
 ### Monitor Progress
 ```bash
 # Web dashboard: http://localhost:5001
@@ -173,6 +178,48 @@ templates/
 ├── modern_system_status.html         # System metrics
 └── shared-ui-components.css          # Shared styles
 ```
+
+## 📦 CSV Splitting (new feature)
+
+When you upload a CSV file with more records than the configured `MAX_BATCH_SIZE` (default 5000), the system automatically splits the CSV into multiple batches. Each split becomes an independent batch with its own chunks, queue jobs, and lifecycle. All split batches are linked by a `parent_batch_id` so you can track or aggregate progress across the original CSV upload.
+
+Key points:
+- The split threshold is controlled by the `MAX_BATCH_SIZE` environment variable (default 5000).
+- Each new batch gets a `batch_id` and a human-friendly `batch_name` such as `MyBatch_Part1of3`.
+- You can manage each split batch independently (pause/resume/retry/cancel/export).
+
+Example: CSV with 12,500 records, `MAX_BATCH_SIZE=5000` => creates 3 batches:
+
+- Part1of3 — 5000 records
+- Part2of3 — 5000 records
+- Part3of3 — 2500 records
+
+API endpoints useful for split batches:
+
+- DELETE /api/v1/batches/<batch_id>
+  - Delete a single batch (same as batch_manager.delete_batch). Example:
+    ```bash
+    curl -i -X DELETE "http://127.0.0.1:5001/api/v1/batches/<BATCH_ID>"
+    ```
+
+- GET /api/v1/batches/related/<batch_id>
+  - Returns the list of batches created from the same CSV (all children that share the same parent_batch_id).
+
+- GET /api/v1/batches/parent/<parent_batch_id>/status
+  - Aggregated status across all split batches (total urls, processed counts, success rates, per-batch status).
+
+Storage / DB note:
+The split-batch feature adds three new columns to the `processing_batches` table:
+
+```sql
+ALTER TABLE processing_batches
+ADD COLUMN parent_batch_id UUID,
+ADD COLUMN batch_sequence INTEGER DEFAULT 1,
+ADD COLUMN total_split_batches INTEGER DEFAULT 1;
+```
+
+Apply this change before using split-batching in production (or create an Alembic migration to add these columns).
+
 
 ## ⚡ Performance (API-Based Processing)
 

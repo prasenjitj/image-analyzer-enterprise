@@ -49,6 +49,12 @@ class ProcessingBatch(Base):
     batch_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     batch_name = Column(String(255), nullable=False)
 
+    # Parent batch tracking - for CSV files split into multiple batches
+    parent_batch_id = Column(UUID(as_uuid=True), nullable=True)
+    batch_sequence = Column(Integer, default=1)  # 1, 2, 3... for split batches
+    # Total number of batches from same CSV
+    total_split_batches = Column(Integer, default=1)
+
     # Batch configuration
     total_urls = Column(Integer, nullable=False)
     chunk_size = Column(Integer, default=1000)
@@ -100,6 +106,9 @@ class ProcessingBatch(Base):
         return {
             'batch_id': str(self.batch_id),
             'batch_name': self.batch_name,
+            'parent_batch_id': str(self.parent_batch_id) if self.parent_batch_id else None,
+            'batch_sequence': self.batch_sequence,
+            'total_split_batches': self.total_split_batches,
             'total_urls': self.total_urls,
             'chunk_size': self.chunk_size,
             'total_chunks': self.total_chunks,

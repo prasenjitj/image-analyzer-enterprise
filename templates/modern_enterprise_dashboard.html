@@ -1128,14 +1128,46 @@
             }
 
             // Update modal content
-            document.getElementById('successMessage').innerHTML = `
-                <div class="text-left space-y-2">
-                    <p><strong>Batch ID:</strong> ${result.batch_id}</p>
-                    <p><strong>Total URLs:</strong> ${result.batch_info.total_urls.toLocaleString()}</p>
-                    <p><strong>Chunks:</strong> ${result.batch_info.total_chunks}</p>
-                    ${result.batch_info.auto_started ? '<p class="text-green-600">✓ Auto-started</p>' : ''}
-                </div>
-            `;
+            // Support both single-batch and multi-batch (split) responses.
+            // Old responses contain `batch_id` and `batch_info`.
+            // New split responses set `is_split: true` and include `batches` array and `parent_batch_id`.
+            let messageHtml = '<div class="text-left space-y-2">';
+
+            if (result.is_split) {
+                // Parent batch summary
+                const parentId = result.parent_batch_id || 'N/A';
+                messageHtml += `<p><strong>Parent upload ID:</strong> ${parentId}</p>`;
+                messageHtml += `<p><strong>Split into:</strong> ${result.num_batches} batch(es) — ${result.total_listings.toLocaleString()} total URLs</p>`;
+
+                // List each created batch with brief info and link if available
+                if (Array.isArray(result.batches) && result.batches.length > 0) {
+                    messageHtml += `<div class="mt-2 text-sm">`;
+                    result.batches.forEach((b) => {
+                        const bid = b.batch_id || 'N/A';
+                        const name = b.batch_name || bid;
+                        const urls = (b.total_urls || 0).toLocaleString();
+                        const chunks = b.total_chunks || 'N/A';
+                        // If redirect_url exists in top-level result we will link to dashboard; otherwise default to /batch/<id>
+                        const url = `/batch/${bid}`;
+                        messageHtml += `<div class="mb-1"><a class="text-purple-600 hover:underline" href="${url}">${name}</a> — ${urls} URLs — ${chunks} chunks</div>`;
+                    });
+                    messageHtml += `</div>`;
+                }
+
+            } else {
+                // Backward-compatible single-batch flow
+                const info = result.batch_info || {};
+                const totalUrls = (info.total_urls || 0);
+                const chunks = info.total_chunks || 0;
+                messageHtml += `<p><strong>Batch ID:</strong> ${result.batch_id || 'N/A'}</p>`;
+                messageHtml += `<p><strong>Total URLs:</strong> ${Number(totalUrls).toLocaleString()}</p>`;
+                messageHtml += `<p><strong>Chunks:</strong> ${chunks}</p>`;
+                if (info.auto_started) messageHtml += '<p class="text-green-600">✓ Auto-started</p>';
+            }
+
+            messageHtml += '</div>';
+
+            document.getElementById('successMessage').innerHTML = messageHtml;
             document.getElementById('viewBatchBtn').href = result.redirect_url;
             document.getElementById('successModal').classList.remove('hidden');
 
@@ -1470,7 +1502,7 @@
             buttons.forEach(btn => btn.disabled = true);
 
             // Perform the action
-            fetch(`/batch/bulk/${action}`, {
+            fetch(`/api/v1/batch/bulk/${action}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
